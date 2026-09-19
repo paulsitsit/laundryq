@@ -60,14 +60,8 @@
                             class="btn btn-outline-primary w-100 mb-2"
                         >
                             Register
-                        </a>
-
-                        <a
-                            href="customer/reserve.php"
-                            class="btn btn-outline-secondary w-100"
-                        >
-                            Book a Reservation
-                        </a>
+                        </a><a
+                        
                     </div>
                 </div>
             </div>
