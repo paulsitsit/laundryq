@@ -4,20 +4,31 @@
 declare(strict_types=1);
 
 session_start();
+
 require_once __DIR__ . '/../config/db_connect.php';
+require_once __DIR__ . '/../config/email.php';
 
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\UTCDateTime;
 
 if (!isset($_SESSION['admin_id'])) {
-    die("You must be logged in as admin. <a href='login.php'>Login here</a>");
+    die(
+        "You must be logged in as admin. " .
+        "<a href='login.php'>Login here</a>"
+    );
 }
 
-$adminIdString = trim((string) $_SESSION['admin_id']);
+$adminIdString = trim(
+    (string) $_SESSION['admin_id']
+);
 
 if (!preg_match('/^[a-fA-F0-9]{24}$/', $adminIdString)) {
     session_destroy();
-    die("Invalid admin session. <a href='login.php'>Please login again</a>");
+
+    die(
+        "Invalid admin session. " .
+        "<a href='login.php'>Please login again</a>"
+    );
 }
 
 function h(mixed $value): string
@@ -26,7 +37,11 @@ function h(mixed $value): string
         return '—';
     }
 
-    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars(
+        (string) $value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
 }
 
 function validObjectId(string $value): bool
@@ -57,7 +72,60 @@ function findById($collection, mixed $id): ?array
         return null;
     }
 
-    return asArray($collection->findOne(['_id' => $id]));
+    return asArray(
+        $collection->findOne([
+            '_id' => $id
+        ])
+    );
+}
+
+function sendOrderEmail(
+    ?array $customer,
+    string $orderId,
+    string $status
+): bool {
+    if ($customer === null) {
+        error_log(
+            'Order status email skipped: customer not found.'
+        );
+
+        return false;
+    }
+
+    $email = trim((string) (
+        $customer['email'] ??
+        $customer['email_address'] ??
+        ''
+    ));
+
+    $name = trim((string) (
+        $customer['full_name'] ??
+        $customer['name'] ??
+        'LaundryQ Customer'
+    ));
+
+    if ($email === '') {
+        error_log(
+            'Order status email skipped: customer email is missing.'
+        );
+
+        return false;
+    }
+
+    if (!function_exists('sendOrderStatusEmail')) {
+        error_log(
+            'Order status email failed: email.php was not loaded.'
+        );
+
+        return false;
+    }
+
+    return sendOrderStatusEmail(
+        $email,
+        $name,
+        $orderId,
+        $status
+    );
 }
 
 function formatDateValue(mixed $value): string
@@ -65,13 +133,17 @@ function formatDateValue(mixed $value): string
     if ($value instanceof UTCDateTime) {
         return $value
             ->toDateTime()
-            ->setTimezone(new DateTimeZone('Asia/Manila'))
+            ->setTimezone(
+                new DateTimeZone('Asia/Manila')
+            )
             ->format('M j, Y g:i A');
     }
 
     if ($value instanceof DateTimeInterface) {
         return $value
-            ->setTimezone(new DateTimeZone('Asia/Manila'))
+            ->setTimezone(
+                new DateTimeZone('Asia/Manila')
+            )
             ->format('M j, Y g:i A');
     }
 
@@ -136,20 +208,28 @@ try {
         isset($_POST['order_id'])
     ) {
         $orderIdText = trim((string) $_POST['order_id']);
-        $action = trim((string) ($_POST['action'] ?? 'update_status'));
+        $action = trim((string) (
+            $_POST['action'] ?? 'update_status'
+        ));
 
         if (!validObjectId($orderIdText)) {
             throw new RuntimeException('Invalid order ID.');
         }
 
         $orderId = new ObjectId($orderIdText);
-        $order = asArray($db->orders->findOne([
-            '_id' => $orderId
-        ]));
+        $order = asArray(
+            $db->orders->findOne([
+                '_id' => $orderId
+            ])
+        );
 
-        if (!$order) {
+        if ($order === null) {
             throw new RuntimeException('Order not found.');
         }
+
+        $oldStatus = trim((string) (
+            $order['status'] ?? 'Pending'
+        ));
 
         $set = [
             'notified' => false,
@@ -196,7 +276,6 @@ try {
                 $orderIdText . '.';
         } elseif ($action === 'decline_service_change') {
             $newStatus = 'Pending';
-
             $set['status'] = $newStatus;
             $set['service_change_result'] = 'declined';
 
@@ -210,7 +289,9 @@ try {
                 "Service change declined for order #" .
                 $orderIdText . '.';
         } else {
-            $newStatus = trim((string) ($_POST['status'] ?? ''));
+            $newStatus = trim((string) (
+                $_POST['status'] ?? ''
+            ));
 
             $allowedStatuses = [
                 'Pending',
@@ -260,7 +341,51 @@ try {
             );
         }
 
+        $emailSent = false;
+        $updatedOrder = asArray(
+            $db->orders->findOne([
+                '_id' => $orderId
+            ])
+        );
+
+        $customer = findById(
+            $db->users,
+            $updatedOrder['user_id'] ??
+            $order['user_id'] ??
+            null
+        );
+
+        if ($oldStatus !== $newStatus) {
+            $emailSent = sendOrderEmail(
+                $customer,
+                $orderIdText,
+                $newStatus
+            );
+        }
+
+        $db->orders->updateOne(
+            ['_id' => $orderId],
+            [
+                '$set' => [
+                    'notified' => $emailSent,
+                    'notification_updated_at' =>
+                        new UTCDateTime()
+                ]
+            ]
+        );
+
         $_SESSION['message'] = $successMessage;
+
+        if ($oldStatus !== $newStatus && $emailSent) {
+            $_SESSION['message'] .=
+                ' Customer email notification sent.';
+        } elseif ($oldStatus !== $newStatus) {
+            $_SESSION['message'] .=
+                ' Order updated, but the customer email could not be sent.';
+        } else {
+            $_SESSION['message'] .=
+                ' No email was sent because the status did not change.';
+        }
 
         header('Location: dashboard.php');
         exit();
@@ -292,7 +417,7 @@ try {
     ) {
         $order = asArray($document);
 
-        if (!$order) {
+        if ($order === null) {
             continue;
         }
 
@@ -313,13 +438,12 @@ try {
 
         $order['order_id_text'] =
             (string) ($order['_id'] ?? '');
-
         $order['customer_name'] =
-            $customer['full_name'] ?? '—';
-
+            $customer['full_name'] ??
+            $customer['name'] ??
+            '—';
         $order['service_name'] =
             $service['service_name'] ?? '—';
-
         $order['requested_service_name'] =
             $requestedService['service_name'] ?? '—';
 
@@ -345,7 +469,9 @@ $serviceChangeRequests = 0;
 $cancelRequests = 0;
 
 foreach ($orders as $order) {
-    $status = (string) ($order['status'] ?? 'Pending');
+    $status = (string) (
+        $order['status'] ?? 'Pending'
+    );
 
     if ($status === 'Pending') {
         $pendingOrders++;
@@ -529,7 +655,6 @@ for ($index = 0; $index < 7; $index++) {
                 📅 <?= h($pendingReservations) ?>
                 pending reservation(s).
             </strong>
-
             <a
                 href="reservations.php"
                 class="ms-2"
@@ -675,11 +800,7 @@ for ($index = 0; $index < 7; $index++) {
 
                         <tr class="<?= h($highlight) ?>">
                             <td>#<?= h($orderId) ?></td>
-
-                            <td>
-                                <?= h($order['customer_name']) ?>
-                            </td>
-
+                            <td><?= h($order['customer_name']) ?></td>
                             <td>
                                 <?= h($order['service_name']) ?>
 
@@ -697,12 +818,9 @@ for ($index = 0; $index < 7; $index++) {
                                     </small>
                                 <?php endif; ?>
                             </td>
-
                             <td>
-                                <?= h($order['weight_kg'] ?? null) ?>
-                                kg
+                                <?= h($order['weight_kg'] ?? null) ?> kg
                             </td>
-
                             <td>
                                 ₱<?= number_format(
                                     (float) (
@@ -711,17 +829,12 @@ for ($index = 0; $index < 7; $index++) {
                                     2
                                 ) ?>
                             </td>
-
-                            <td>
-                                <?= statusBadge($status) ?>
-                            </td>
-
+                            <td><?= statusBadge($status) ?></td>
                             <td>
                                 <?= formatDateValue(
                                     $order['created_at'] ?? null
                                 ) ?>
                             </td>
-
                             <td>
                                 <?php if (
                                     $status ===
@@ -770,7 +883,6 @@ for ($index = 0; $index < 7; $index++) {
                                             Reject
                                         </button>
                                     </form>
-
                                 <?php elseif (
                                     $status ===
                                     'Service Change Requested'
@@ -842,7 +954,6 @@ for ($index = 0; $index < 7; $index++) {
                                             Decline
                                         </button>
                                     </form>
-
                                 <?php else: ?>
                                     <form
                                         method="POST"
