@@ -3,14 +3,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ .
-    '/../vendor/phpmailer/phpmailer/src/Exception.php';
-
-require_once __DIR__ .
-    '/../vendor/phpmailer/phpmailer/src/PHPMailer.php';
-
-require_once __DIR__ .
-    '/../vendor/phpmailer/phpmailer/src/SMTP.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -79,10 +72,8 @@ function configureLaundryQMailer(
     $mail->SMTPAuth = true;
     $mail->Username = $smtpUsername;
     $mail->Password = $smtpPassword;
-
     $mail->SMTPSecure =
         PHPMailer::ENCRYPTION_STARTTLS;
-
     $mail->Port = 587;
     $mail->Timeout = 30;
     $mail->CharSet = 'UTF-8';
@@ -135,7 +126,6 @@ function sendVerificationEmail(
         );
 
         $mail->isHTML(true);
-
         $mail->Subject =
             'Verify your LaundryQ account';
 
@@ -162,7 +152,7 @@ function sendVerificationEmail(
             <body style='
                 font-family: Arial, sans-serif;
                 line-height: 1.6;
-            >
+            '>
                 <h2>
                     Welcome to LaundryQ,
                     {$safeName}
@@ -242,7 +232,6 @@ function sendReservationStatusEmail(
         );
 
         $mail->isHTML(true);
-
         $mail->Subject =
             'LaundryQ reservation status update';
 
@@ -273,7 +262,7 @@ function sendReservationStatusEmail(
                 background:#f5f7fb;
                 font-family:Arial,sans-serif;
                 color:#212529;
-            >
+            '>
                 <div style='
                     max-width:560px;
                     margin:auto;
@@ -282,7 +271,7 @@ function sendReservationStatusEmail(
                     padding:28px;
                     box-shadow:0 2px 12px
                         rgba(0,0,0,.08);
-                >
+                '>
                     <h2 style='color:#0d6efd;'>
                         LaundryQ Reservation Update
                     </h2>
@@ -303,7 +292,7 @@ function sendReservationStatusEmail(
                         border-left:5px solid #0d6efd;
                         background:#f0f6ff;
                         border-radius:6px;
-                    >
+                    '>
                         <p>
                             <strong>Reservation:</strong>
                             #{$safeReservationId}
