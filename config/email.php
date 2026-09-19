@@ -446,3 +446,125 @@ HTML;
         $textContent
     );
 }
+
+/*
+|--------------------------------------------------------------------------
+| Order status email
+|--------------------------------------------------------------------------
+*/
+
+function sendOrderStatusEmail(
+    string $email,
+    string $fullName,
+    string $orderId,
+    string $status
+): bool {
+    if (
+        $email === '' ||
+        !filter_var(
+            $email,
+            FILTER_VALIDATE_EMAIL
+        )
+    ) {
+        error_log(
+            'Order status email skipped: invalid email.'
+        );
+
+        return false;
+    }
+
+    $safeName = htmlspecialchars(
+        $fullName,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+
+    $safeOrderId = htmlspecialchars(
+        $orderId,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+
+    $safeStatus = htmlspecialchars(
+        $status,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+
+    $htmlContent = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<body style="
+    margin:0;
+    padding:24px;
+    background:#f5f7fb;
+    font-family:Arial,sans-serif;
+    line-height:1.6;
+    color:#212529;
+">
+    <div style="
+        max-width:560px;
+        margin:auto;
+        padding:28px;
+        background:#ffffff;
+        border-radius:12px;
+    ">
+        <h2 style="color:#0d6efd;">
+            LaundryQ Order Status Update
+        </h2>
+
+        <p>
+            Hello <strong>{$safeName}</strong>,
+        </p>
+
+        <p>
+            Your laundry order status has been updated.
+        </p>
+
+        <div style="
+            margin:24px 0;
+            padding:18px;
+            border-left:5px solid #0d6efd;
+            background:#f0f6ff;
+        ">
+            <p>
+                <strong>Order:</strong>
+                #{$safeOrderId}
+            </p>
+
+            <p>
+                <strong>New status:</strong>
+                <span style="color:#0d6efd;">
+                    {$safeStatus}
+                </span>
+            </p>
+        </div>
+
+        <p>
+            Please log in to LaundryQ for more details.
+        </p>
+
+        <p>
+            Thank you,<br>
+            <strong>LaundryQ Team</strong>
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $textContent =
+        "Hello {$fullName},\n\n" .
+        "Your LaundryQ order #{$orderId} status " .
+        "is now: {$status}.\n\n" .
+        "Please log in to LaundryQ for more details.\n\n" .
+        "LaundryQ Team";
+
+    return sendBrevoEmail(
+        $email,
+        $fullName,
+        'LaundryQ order status update',
+        $htmlContent,
+        $textContent
+    );
+}
