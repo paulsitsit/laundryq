@@ -5,8 +5,6 @@
 /vendor/
 /node_modules/
 
-config/email.php
-
 check_services.php
 seed_services.php
 
