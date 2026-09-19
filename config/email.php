@@ -46,22 +46,25 @@ function configureLaundryQMailer(
         'LaundryQ'
     );
 
-    if (
-        $smtpUsername === '' ||
-        $smtpPassword === '' ||
-        $senderEmail === ''
-    ) {
+    if ($smtpUsername === '') {
         throw new RuntimeException(
-            'SMTP environment variables are missing.'
+            'BREVO_SMTP_USERNAME is missing.'
         );
     }
 
-    if (
-        !filter_var(
-            $senderEmail,
-            FILTER_VALIDATE_EMAIL
-        )
-    ) {
+    if ($smtpPassword === '') {
+        throw new RuntimeException(
+            'BREVO_SMTP_PASSWORD is missing.'
+        );
+    }
+
+    if ($senderEmail === '') {
+        throw new RuntimeException(
+            'MAIL_FROM_ADDRESS is missing.'
+        );
+    }
+
+    if (!filter_var($senderEmail, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException(
             'MAIL_FROM_ADDRESS is invalid.'
         );
@@ -96,6 +99,24 @@ function laundryqBaseUrl(): string
     );
 }
 
+function logMailerFailure(
+    string $label,
+    PHPMailer $mail,
+    Throwable $exception
+): void {
+    error_log(
+        $label . ': ' .
+        get_class($exception) .
+        ' - ' .
+        $exception->getMessage()
+    );
+
+    error_log(
+        $label . ' PHPMailer info: ' .
+        $mail->ErrorInfo
+    );
+}
+
 function sendVerificationEmail(
     string $email,
     string $fullName,
@@ -103,10 +124,7 @@ function sendVerificationEmail(
 ): bool {
     if (
         $email === '' ||
-        !filter_var(
-            $email,
-            FILTER_VALIDATE_EMAIL
-        )
+        !filter_var($email, FILTER_VALIDATE_EMAIL)
     ) {
         error_log(
             'Verification email skipped: invalid email.'
@@ -120,11 +138,7 @@ function sendVerificationEmail(
     try {
         configureLaundryQMailer($mail);
 
-        $mail->addAddress(
-            $email,
-            $fullName
-        );
-
+        $mail->addAddress($email, $fullName);
         $mail->isHTML(true);
         $mail->Subject =
             'Verify your LaundryQ account';
@@ -150,23 +164,21 @@ function sendVerificationEmail(
             <!DOCTYPE html>
             <html lang='en'>
             <body style='
-                font-family: Arial, sans-serif;
-                line-height: 1.6;
+                font-family:Arial,sans-serif;
+                line-height:1.6;
             '>
                 <h2>
                     Welcome to LaundryQ,
                     {$safeName}
                 </h2>
 
-                <p>
-                    Please verify your email address.
-                </p>
+                <p>Please verify your email address.</p>
 
                 <p>
                     <a href='{$safeUrl}' style='
                         display:inline-block;
                         padding:12px 20px;
-                        color:#ffffff;
+                        color:#fff;
                         background:#0d6efd;
                         text-decoration:none;
                         border-radius:5px;
@@ -175,26 +187,24 @@ function sendVerificationEmail(
                     </a>
                 </p>
 
-                <p>
-                    This link expires in 24 hours.
-                </p>
+                <p>This link expires in 24 hours.</p>
             </body>
             </html>
         ";
 
         $mail->AltBody =
             "Welcome to LaundryQ.\n\n" .
-            "Verify your email address here:\n" .
+            "Verify your email here:\n" .
             $verificationUrl . "\n\n" .
             "This link expires in 24 hours.";
 
         $mail->send();
-
         return true;
     } catch (Throwable $e) {
-        error_log(
-            'Verification email error: ' .
-            $e->getMessage()
+        logMailerFailure(
+            'Verification email error',
+            $mail,
+            $e
         );
 
         return false;
@@ -209,10 +219,7 @@ function sendReservationStatusEmail(
 ): bool {
     if (
         $email === '' ||
-        !filter_var(
-            $email,
-            FILTER_VALIDATE_EMAIL
-        )
+        !filter_var($email, FILTER_VALIDATE_EMAIL)
     ) {
         error_log(
             'Reservation status email skipped: invalid email.'
@@ -226,11 +233,7 @@ function sendReservationStatusEmail(
     try {
         configureLaundryQMailer($mail);
 
-        $mail->addAddress(
-            $email,
-            $fullName
-        );
-
+        $mail->addAddress($email, $fullName);
         $mail->isHTML(true);
         $mail->Subject =
             'LaundryQ reservation status update';
@@ -266,24 +269,20 @@ function sendReservationStatusEmail(
                 <div style='
                     max-width:560px;
                     margin:auto;
-                    background:#ffffff;
+                    background:#fff;
                     border-radius:12px;
                     padding:28px;
-                    box-shadow:0 2px 12px
-                        rgba(0,0,0,.08);
                 '>
                     <h2 style='color:#0d6efd;'>
                         LaundryQ Reservation Update
                     </h2>
 
                     <p>
-                        Hello
-                        <strong>{$safeName}</strong>,
+                        Hello <strong>{$safeName}</strong>,
                     </p>
 
                     <p>
-                        Your reservation status has been
-                        updated by the LaundryQ administrator.
+                        Your reservation status was updated.
                     </p>
 
                     <div style='
@@ -291,7 +290,6 @@ function sendReservationStatusEmail(
                         padding:18px;
                         border-left:5px solid #0d6efd;
                         background:#f0f6ff;
-                        border-radius:6px;
                     '>
                         <p>
                             <strong>Reservation:</strong>
@@ -300,15 +298,12 @@ function sendReservationStatusEmail(
 
                         <p>
                             <strong>New status:</strong>
-                            <span style='color:#0d6efd;'>
-                                {$safeStatus}
-                            </span>
+                            {$safeStatus}
                         </p>
                     </div>
 
                     <p>
-                        Please log in to LaundryQ
-                        for more details.
+                        Please log in to LaundryQ for details.
                     </p>
 
                     <p>
@@ -322,18 +317,16 @@ function sendReservationStatusEmail(
 
         $mail->AltBody =
             "Hello {$fullName},\n\n" .
-            "Your LaundryQ reservation " .
-            "#{$reservationId} status is now: " .
-            "{$status}.\n\n" .
-            "LaundryQ Team";
+            "Reservation #{$reservationId} status: " .
+            "{$status}.\n\nLaundryQ Team";
 
         $mail->send();
-
         return true;
     } catch (Throwable $e) {
-        error_log(
-            'Reservation status email error: ' .
-            $mail->ErrorInfo
+        logMailerFailure(
+            'Reservation status email error',
+            $mail,
+            $e
         );
 
         return false;
