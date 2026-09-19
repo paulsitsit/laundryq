@@ -99,16 +99,10 @@ function sendBrevoEmail(
             'htmlContent' => $htmlContent,
             'textContent' => $textContent
         ],
-        JSON_UNESCAPED_UNICODE
+        JSON_UNESCAPED_UNICODE |
+        JSON_UNESCAPED_SLASHES |
+        JSON_THROW_ON_ERROR
     );
-
-    if ($payload === false) {
-        error_log(
-            'Brevo email failed: payload encoding error.'
-        );
-
-        return false;
-    }
 
     $curl = curl_init(
         'https://api.brevo.com/v3/smtp/email'
@@ -127,6 +121,8 @@ function sendBrevoEmail(
         [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_TIMEOUT => 30,
             CURLOPT_HTTPHEADER => [
                 'accept: application/json',
@@ -154,14 +150,10 @@ function sendBrevoEmail(
         return false;
     }
 
-    if (
-        $httpCode < 200 ||
-        $httpCode >= 300
-    ) {
+    if ($httpCode < 200 || $httpCode >= 300) {
         error_log(
             'Brevo email API error. HTTP ' .
-            $httpCode .
-            ': ' .
+            $httpCode . ': ' .
             $response
         );
 
@@ -197,43 +189,84 @@ function sendVerificationEmail(
         <!DOCTYPE html>
         <html lang='en'>
         <body style='
+            margin:0;
+            padding:24px;
+            background:#f5f7fb;
             font-family:Arial,sans-serif;
             line-height:1.6;
+            color:#212529;
         >
-            <h2>
-                Welcome to LaundryQ,
-                {$safeName}
-            </h2>
+            <div style='
+                max-width:560px;
+                margin:auto;
+                padding:28px;
+                background:#ffffff;
+                border-radius:12px;
+            >
+                <h2 style='color:#0d6efd;'>
+                    Verify your LaundryQ account
+                </h2>
 
-            <p>
-                Please verify your email address.
-            </p>
+                <p>
+                    Hello <strong>{$safeName}</strong>,
+                </p>
 
-            <p>
-                <a href='{$safeUrl}' style='
-                    display:inline-block;
-                    padding:12px 20px;
-                    color:#fff;
-                    background:#0d6efd;
-                    text-decoration:none;
-                    border-radius:5px;
-                '>
-                    Verify Email Address
-                </a>
-            </p>
+                <p>
+                    Please verify your email address by clicking
+                    the button below.
+                </p>
 
-            <p>
-                This link expires in 24 hours.
-            </p>
+                <p>
+                    <a
+                        href="{$safeUrl}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style='
+                            display:inline-block;
+                            padding:12px 20px;
+                            color:#ffffff;
+                            background:#0d6efd;
+                            text-decoration:none;
+                            border-radius:6px;
+                            font-weight:bold;
+                        '
+                    >
+                        Verify Email Address
+                    </a>
+                </p>
+
+                <p>
+                    If the button does not work, copy and paste
+                    this link into your browser:
+                </p>
+
+                <p style='
+                    word-break:break-all;
+                    font-size:13px;
+                    color:#495057;
+                >
+                    {$safeUrl}
+                </p>
+
+                <p>
+                    This link expires in 24 hours.
+                </p>
+
+                <p>
+                    Thank you,<br>
+                    <strong>LaundryQ Team</strong>
+                </p>
+            </div>
         </body>
         </html>
     ";
 
     $textContent =
-        "Welcome to LaundryQ.\n\n" .
-        "Verify your email here:\n" .
+        "Hello {$fullName},\n\n" .
+        "Verify your LaundryQ account using this link:\n" .
         $verificationUrl . "\n\n" .
-        "This link expires in 24 hours.";
+        "This link expires in 24 hours.\n\n" .
+        "LaundryQ Team";
 
     return sendBrevoEmail(
         $email,
@@ -281,9 +314,9 @@ function sendReservationStatusEmail(
             <div style='
                 max-width:560px;
                 margin:auto;
-                background:#fff;
-                border-radius:12px;
                 padding:28px;
+                background:#ffffff;
+                border-radius:12px;
             >
                 <h2 style='color:#0d6efd;'>
                     LaundryQ Reservation Update
