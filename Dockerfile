@@ -6,6 +6,8 @@ RUN apt-get update \
         unzip \
         libssl-dev \
         pkg-config \
+        libcurl4-openssl-dev \
+    && docker-php-ext-install curl \
     && pecl install mongodb \
     && docker-php-ext-enable mongodb \
     && a2enmod rewrite \
