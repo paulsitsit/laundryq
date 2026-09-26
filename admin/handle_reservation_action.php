@@ -4,7 +4,6 @@
 declare(strict_types=1);
 
 session_start();
-
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/email.php';
 
@@ -25,6 +24,23 @@ function setMessage(string $message): void
 function setError(string $message): void
 {
     $_SESSION['error'] = $message;
+}
+
+function asArray(mixed $document): ?array
+{
+    if ($document === null) {
+        return null;
+    }
+
+    if (is_array($document)) {
+        return $document;
+    }
+
+    if (method_exists($document, 'getArrayCopy')) {
+        return $document->getArrayCopy();
+    }
+
+    return null;
 }
 
 if (!isset($_SESSION['admin_id'])) {
@@ -58,15 +74,17 @@ if (
 
 $adminId = new ObjectId($adminIdString);
 $reservationId = new ObjectId($reservationIdString);
-$emailStatus = null;
 $result = null;
+$emailStatus = null;
 
 try {
-    $reservation = $db->reservations->findOne([
-        '_id' => $reservationId
-    ]);
+    $reservation = asArray(
+        $db->reservations->findOne([
+            '_id' => $reservationId
+        ])
+    );
 
-    if (!$reservation) {
+    if ($reservation === null) {
         setError('Reservation not found.');
         redirectToReservations();
     }
@@ -89,9 +107,8 @@ try {
             );
 
             $emailStatus = 'Accepted';
-            setMessage(
-                "Reservation #{$reservationIdString} accepted."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} accepted.";
             break;
 
         case 'reject_pending':
@@ -111,20 +128,22 @@ try {
             );
 
             $emailStatus = 'Rejected';
-            setMessage(
-                "Reservation #{$reservationIdString} rejected."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} rejected.";
             break;
 
         case 'update_status':
-            $newStatus = trim((string) ($_POST['status'] ?? ''));
+            $newStatus = trim((string) (
+                $_POST['status'] ?? ''
+            ));
 
             $allowedStatuses = [
                 'Washing',
                 'Drying',
                 'Folding',
                 'Ready for Pick-Up',
-                'Completed'
+                'Completed',
+                'Cancelled'
             ];
 
             if (!in_array($newStatus, $allowedStatuses, true)) {
@@ -154,10 +173,9 @@ try {
             );
 
             $emailStatus = $newStatus;
-            setMessage(
+            $successMessage =
                 "Reservation #{$reservationIdString} " .
-                "updated to {$newStatus}."
-            );
+                "updated to {$newStatus}.";
             break;
 
         case 'approve_service_change':
@@ -177,7 +195,10 @@ try {
                 [
                     '$set' => [
                         'service_id' => $requestedServiceId,
-                        'weight_kg' => $reservation['requested_weight_kg'] ?? $reservation['weight_kg'] ?? 0,
+                        'weight_kg' =>
+                            $reservation['requested_weight_kg'] ??
+                            $reservation['weight_kg'] ??
+                            0,
                         'status' => 'Pending',
                         'service_change_result' => 'approved',
                         'notified' => false,
@@ -192,10 +213,9 @@ try {
             );
 
             $emailStatus = 'Service change approved';
-            setMessage(
-                "Service change approved for reservation " .
-                "#{$reservationIdString}."
-            );
+            $successMessage =
+                "Service change approved for reservation #" .
+                $reservationIdString . '.';
             break;
 
         case 'decline_service_change':
@@ -220,10 +240,9 @@ try {
             );
 
             $emailStatus = 'Service change declined';
-            setMessage(
-                "Service change declined for reservation " .
-                "#{$reservationIdString}."
-            );
+            $successMessage =
+                "Service change declined for reservation #" .
+                $reservationIdString . '.';
             break;
 
         case 'mark_arrived':
@@ -231,7 +250,10 @@ try {
                 [
                     '_id' => $reservationId,
                     'status' => [
-                        '$in' => ['Accepted', 'Rescheduled']
+                        '$in' => [
+                            'Accepted',
+                            'Rescheduled'
+                        ]
                     ]
                 ],
                 [
@@ -245,9 +267,8 @@ try {
             );
 
             $emailStatus = 'Arrived';
-            setMessage(
-                "Reservation #{$reservationIdString} marked as Arrived."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as Arrived.";
             break;
 
         case 'mark_no_show':
@@ -255,7 +276,10 @@ try {
                 [
                     '_id' => $reservationId,
                     'status' => [
-                        '$in' => ['Accepted', 'Rescheduled']
+                        '$in' => [
+                            'Accepted',
+                            'Rescheduled'
+                        ]
                     ]
                 ],
                 [
@@ -269,9 +293,8 @@ try {
             );
 
             $emailStatus = 'No-Show';
-            setMessage(
-                "Reservation #{$reservationIdString} marked as No-Show."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as No-Show.";
             break;
 
         case 'start_processing':
@@ -291,9 +314,8 @@ try {
             );
 
             $emailStatus = 'In Progress';
-            setMessage(
-                "Reservation #{$reservationIdString} is now In Progress."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} is now In Progress.";
             break;
 
         case 'mark_ready_pickup':
@@ -320,9 +342,8 @@ try {
             );
 
             $emailStatus = 'Ready for Pick-Up';
-            setMessage(
-                "Reservation #{$reservationIdString} marked as Ready for Pick-Up."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as Ready for Pick-Up.";
             break;
 
         case 'mark_picked_up':
@@ -342,9 +363,8 @@ try {
             );
 
             $emailStatus = 'Picked Up';
-            setMessage(
-                "Reservation #{$reservationIdString} marked as Picked Up."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as Picked Up.";
             break;
 
         case 'complete':
@@ -364,9 +384,8 @@ try {
             );
 
             $emailStatus = 'Completed';
-            setMessage(
-                "Reservation #{$reservationIdString} marked as Completed."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as Completed.";
             break;
 
         case 'cancel':
@@ -393,14 +412,15 @@ try {
             );
 
             $emailStatus = 'Cancelled';
-            setMessage(
-                "Reservation #{$reservationIdString} cancelled."
-            );
+            $successMessage =
+                "Reservation #{$reservationIdString} cancelled.";
             break;
 
         case 'accept_reschedule':
-            $requestedDate = $reservation['requested_date'] ?? null;
-            $requestedTime = $reservation['requested_time'] ?? null;
+            $requestedDate =
+                $reservation['requested_date'] ?? null;
+            $requestedTime =
+                $reservation['requested_time'] ?? null;
 
             if (!$requestedDate || !$requestedTime) {
                 setError('No reschedule date or time was found.');
@@ -425,9 +445,9 @@ try {
             );
 
             $emailStatus = 'Rescheduled';
-            setMessage(
-                "Reschedule accepted for reservation #{$reservationIdString}."
-            );
+            $successMessage =
+                "Reschedule accepted for reservation #" .
+                $reservationIdString . '.';
             break;
 
         case 'reject_reschedule':
@@ -447,9 +467,9 @@ try {
             );
 
             $emailStatus = 'No-Show';
-            setMessage(
-                "Reschedule rejected for reservation #{$reservationIdString}."
-            );
+            $successMessage =
+                "Reschedule rejected for reservation #" .
+                $reservationIdString . '.';
             break;
 
         default:
@@ -465,52 +485,77 @@ try {
         redirectToReservations();
     }
 
-    $updatedReservation = $db->reservations->findOne([
-        '_id' => $reservationId
-    ]);
+    $updatedReservation = asArray(
+        $db->reservations->findOne([
+            '_id' => $reservationId
+        ])
+    );
+
+    $emailSent = false;
 
     if (
-        $updatedReservation &&
-        ($updatedReservation['user_id'] ?? null) instanceof ObjectId &&
+        $updatedReservation !== null &&
+        ($updatedReservation['user_id'] ?? null)
+            instanceof ObjectId &&
         $emailStatus !== null
     ) {
-        $customer = $db->users->findOne([
-            '_id' => $updatedReservation['user_id']
-        ]);
+        $customer = asArray(
+            $db->users->findOne([
+                '_id' => $updatedReservation['user_id']
+            ])
+        );
 
-        if (!$customer) {
-            setError(
-                'Reservation updated, but the customer could not be found.'
-            );
-        } elseif (
-            empty($customer['email']) ||
-            !filter_var(
-                (string) $customer['email'],
-                FILTER_VALIDATE_EMAIL
-            )
-        ) {
-            setError(
-                'Reservation updated, but the customer email is missing or invalid.'
-            );
-        } else {
+        $customerEmail = trim((string) (
+            $customer['email'] ??
+            $customer['email_address'] ??
+            ''
+        ));
+
+        $customerName = trim((string) (
+            $customer['full_name'] ??
+            $customer['name'] ??
+            'LaundryQ Customer'
+        ));
+
+        if ($customerEmail !== '') {
             $emailSent = sendReservationStatusEmail(
-                (string) $customer['email'],
-                (string) ($customer['full_name'] ?? 'Customer'),
+                $customerEmail,
+                $customerName,
                 $reservationIdString,
                 $emailStatus
             );
-
-            if (!$emailSent) {
-                setError(
-                    'Reservation updated, but the email notification could not be sent.'
-                );
-            }
         }
     }
+
+    $db->reservations->updateOne(
+        [
+            '_id' => $reservationId
+        ],
+        [
+            '$set' => [
+                'notified' => $emailSent,
+                'notification_updated_at' => new UTCDateTime()
+            ]
+        ]
+    );
+
+    setMessage($successMessage);
+
+    if (!$emailSent) {
+        setError(
+            'Reservation updated, but the customer email notification ' .
+            'could not be sent.'
+        );
+    }
 } catch (Throwable $e) {
-    error_log('Reservation action error: ' . $e->getMessage());
+    error_log(
+        'Reservation action error: ' .
+        $e->getMessage()
+    );
+
     setError(
-        'The reservation action could not be completed. Check the PHP error log.'
+        'The reservation action could not be completed. ' .
+        'Check the PHP error log.'
     );
 }
 
