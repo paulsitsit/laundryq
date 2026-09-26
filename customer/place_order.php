@@ -1,16 +1,30 @@
 <?php
 // File: laundryq/customer/place_order.php
 
+
 declare(strict_types=1);
 
+
 session_start();
+
+
 require_once __DIR__ . '/../config/db_connect.php';
+
 
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\UTCDateTime;
 
+
 $message = '';
 $notifHtml = '';
+
+
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
+
 
 if (!isset($_SESSION['user_id'])) {
     die(
@@ -19,10 +33,20 @@ if (!isset($_SESSION['user_id'])) {
     );
 }
 
-$userIdString = trim((string) $_SESSION['user_id']);
 
-if (!preg_match('/^[a-fA-F0-9]{24}$/', $userIdString)) {
+$userIdString = trim(
+    (string) $_SESSION['user_id']
+);
+
+
+if (
+    !preg_match(
+        '/^[a-fA-F0-9]{24}$/',
+        $userIdString
+    )
+) {
     session_destroy();
+
 
     die(
         "Invalid user session. " .
@@ -30,22 +54,44 @@ if (!preg_match('/^[a-fA-F0-9]{24}$/', $userIdString)) {
     );
 }
 
+
 $userId = new ObjectId($userIdString);
 
+
+/*
+|--------------------------------------------------------------------------
+| Place order
+|--------------------------------------------------------------------------
+*/
+
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $serviceId = trim((string) ($_POST['service_id'] ?? ''));
+    $serviceId = trim(
+        $_POST['service_id'] ?? ''
+    );
+
+
     $weightKg = filter_var(
         $_POST['weight_kg'] ?? null,
         FILTER_VALIDATE_FLOAT
     );
 
-    if (!preg_match('/^[a-fA-F0-9]{24}$/', $serviceId)) {
+
+    if (
+        !preg_match(
+            '/^[a-fA-F0-9]{24}$/',
+            $serviceId
+        )
+    ) {
         $message = "
             <div class='alert alert-danger'>
                 Invalid service selected.
             </div>
         ";
-    } elseif ($weightKg === false || $weightKg <= 0) {
+    } elseif (
+        $weightKg === false ||
+        $weightKg <= 0
+    ) {
         $message = "
             <div class='alert alert-danger'>
                 Please enter a valid laundry weight.
@@ -55,11 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $service = $db->services->findOne([
                 '_id' => new ObjectId($serviceId),
-                '$or' => [
-                    ['is_active' => true],
-                    ['is_active' => ['$exists' => false]]
+                'is_active' => [
+                    '$ne' => false
                 ]
             ]);
+
 
             if (!$service) {
                 $message = "
@@ -68,10 +114,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 ";
             } else {
-                $minKg = (float) ($service['min_kg'] ?? 0);
-                $maxKg = (float) ($service['max_kg'] ?? 0);
-                $basePrice = (float) ($service['base_price'] ?? 0);
-                $extraPerKg = (float) ($service['extra_per_kg'] ?? 0);
+                $minKg = (float) (
+                    $service['min_kg'] ?? 0
+                );
+
+
+                $maxKg = (float) (
+                    $service['max_kg'] ?? 0
+                );
+
+
+                $basePrice = (float) (
+                    $service['base_price'] ?? 0
+                );
+
+
+                $extraPerKg = (float) (
+                    $service['extra_per_kg'] ?? 0
+                );
+
 
                 if ($weightKg < $minKg) {
                     $message = "
@@ -82,28 +143,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ENT_QUOTES,
                                 'UTF-8'
                             ) .
-                            " kg.
+                            "kg.
                         </div>
                     ";
                 } else {
                     $totalAmount = $basePrice;
+
 
                     if ($weightKg > $maxKg) {
                         $totalAmount +=
                             ($weightKg - $maxKg) * $extraPerKg;
                     }
 
+
                     $db->orders->insertOne([
                         'user_id' => $userId,
-                        'service_id' => new ObjectId($serviceId),
-                        'weight_kg' => (float) $weightKg,
-                        'total_amount' => round($totalAmount, 2),
+                        'service_id' =>
+                            new ObjectId($serviceId),
+                        'weight_kg' =>
+                            (float) $weightKg,
+                        'total_amount' =>
+                            round($totalAmount, 2),
                         'status' => 'Pending',
                         'notified' => false,
                         'service_change_result' => null,
-                        'created_at' => new UTCDateTime(),
-                        'updated_at' => new UTCDateTime()
+                        'created_at' =>
+                            new UTCDateTime(),
+                        'updated_at' =>
+                            new UTCDateTime()
                     ]);
+
 
                     $message = "
                         <div class='alert alert-success'>
@@ -117,8 +186,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             error_log(
-                'Order creation error: ' . $e->getMessage()
+                'Order creation error: ' .
+                $e->getMessage()
             );
+
 
             $message = "
                 <div class='alert alert-danger'>
@@ -129,6 +200,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| Reservation notifications
+|--------------------------------------------------------------------------
+*/
+
 
 try {
     $reservationNotifications = $db->reservations->find(
@@ -143,10 +222,14 @@ try {
         ]
     );
 
+
     $reservationIdsToMark = [];
 
+
     foreach ($reservationNotifications as $notification) {
-        $reservationIdsToMark[] = $notification['_id'];
+        $reservationIdsToMark[] =
+            $notification['_id'];
+
 
         $reservationId = htmlspecialchars(
             (string) $notification['_id'],
@@ -154,39 +237,58 @@ try {
             'UTF-8'
         );
 
+
         $serviceType = htmlspecialchars(
-            (string) ($notification['service_type'] ?? ''),
+            (string) (
+                $notification['service_type'] ?? ''
+            ),
             ENT_QUOTES,
             'UTF-8'
         );
+
 
         $reservationDate = htmlspecialchars(
-            (string) ($notification['reservation_date'] ?? ''),
+            (string) (
+                $notification['reservation_date'] ?? ''
+            ),
             ENT_QUOTES,
             'UTF-8'
         );
+
 
         $reservationTime = htmlspecialchars(
-            (string) ($notification['reservation_time'] ?? ''),
+            (string) (
+                $notification['reservation_time'] ?? ''
+            ),
             ENT_QUOTES,
             'UTF-8'
         );
 
-        $status = (string) ($notification['status'] ?? '');
-        $changeResult = $notification['service_change_result'] ?? null;
+
+        $status = (string) (
+            $notification['status'] ?? ''
+        );
+
+
+        $changeResult =
+            $notification['service_change_result']
+            ?? null;
+
 
         if ($changeResult === 'approved') {
             $notifHtml .= "
                 <div class='alert alert-success'>
                     ✅ Your service change request for reservation
-                    #{$reservationId} was <strong>approved</strong>.
+                    #{$reservationId} was
+                    <strong>approved</strong>.
                 </div>
             ";
         } elseif ($changeResult === 'declined') {
             $notifHtml .= "
                 <div class='alert alert-danger'>
                     ❌ Your service change request for reservation
-                    #{$reservationId} was <strong>declined</strong>.
+                    #{$reservationId} was
+                    <strong>declined</strong>.
                 </div>
             ";
         } elseif ($status === 'Accepted') {
@@ -197,7 +299,10 @@ try {
                     was <strong>accepted</strong>.
                 </div>
             ";
-        } elseif ($status === 'Declined' || $status === 'Rejected') {
+        } elseif (
+            $status === 'Declined' ||
+            $status === 'Rejected'
+        ) {
             $notifHtml .= "
                 <div class='alert alert-danger'>
                     ❌ Your reservation for
@@ -208,38 +313,53 @@ try {
         } elseif ($status === 'Ready for Pick-Up') {
             $notifHtml .= "
                 <div class='alert alert-info'>
-                    📦 Your laundry is <strong>ready for pick-up</strong>.
+                    📦 Your laundry is
+                    <strong>ready for pick-up</strong>.
                 </div>
             ";
         } elseif ($status === 'No-Show') {
             $notifHtml .= "
                 <div class='alert alert-warning'>
-                    ⚠️ You were marked as a <strong>No-Show</strong>.
+                    ⚠️ You were marked as a
+                    <strong>No-Show</strong>.
                 </div>
             ";
         }
     }
 
+
     if (!empty($reservationIdsToMark)) {
         $db->reservations->updateMany(
             [
-                '_id' => ['$in' => $reservationIdsToMark],
+                '_id' => [
+                    '$in' => $reservationIdsToMark
+                ],
                 'user_id' => $userId,
                 'notified' => false
             ],
             [
                 '$set' => [
                     'notified' => true,
-                    'updated_at' => new UTCDateTime()
+                    'updated_at' =>
+                        new UTCDateTime()
                 ]
             ]
         );
     }
 } catch (Throwable $e) {
     error_log(
-        'Reservation notification error: ' . $e->getMessage()
+        'Reservation notification error: ' .
+        $e->getMessage()
     );
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| Order notifications
+|--------------------------------------------------------------------------
+*/
+
 
 try {
     $orderNotifications = $db->orders->find(
@@ -247,7 +367,10 @@ try {
             'user_id' => $userId,
             'notified' => false,
             'service_change_result' => [
-                '$in' => ['approved', 'declined']
+                '$in' => [
+                    'approved',
+                    'declined'
+                ]
             ]
         ],
         [
@@ -257,10 +380,14 @@ try {
         ]
     );
 
+
     $orderIdsToMark = [];
 
+
     foreach ($orderNotifications as $notification) {
-        $orderIdsToMark[] = $notification['_id'];
+        $orderIdsToMark[] =
+            $notification['_id'];
+
 
         $orderId = htmlspecialchars(
             (string) $notification['_id'],
@@ -268,8 +395,11 @@ try {
             'UTF-8'
         );
 
+
         $changeResult =
-            $notification['service_change_result'] ?? null;
+            $notification['service_change_result']
+            ?? null;
+
 
         if ($changeResult === 'approved') {
             $notifHtml .= "
@@ -288,32 +418,44 @@ try {
         }
     }
 
+
     if (!empty($orderIdsToMark)) {
         $db->orders->updateMany(
             [
-                '_id' => ['$in' => $orderIdsToMark],
+                '_id' => [
+                    '$in' => $orderIdsToMark
+                ],
                 'user_id' => $userId,
                 'notified' => false
             ],
             [
                 '$set' => [
                     'notified' => true,
-                    'updated_at' => new UTCDateTime()
+                    'updated_at' =>
+                        new UTCDateTime()
                 ]
             ]
         );
     }
 } catch (Throwable $e) {
     error_log(
-        'Order notification error: ' . $e->getMessage()
+        'Order notification error: ' .
+        $e->getMessage()
     );
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| Load services
+|--------------------------------------------------------------------------
+*/
+
+
 $services = $db->services->find(
     [
-        '$or' => [
-            ['is_active' => true],
-            ['is_active' => ['$exists' => false]]
+        'is_active' => [
+            '$ne' => false
         ]
     ],
     [
@@ -327,21 +469,29 @@ $services = $db->services->find(
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
+
+
     <title>Place Order - LaundryQ</title>
+
+
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
 </head>
+
+
 <body class="bg-light">
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <div class="mb-3">
+                <div class="mb-2">
                     <button
                         type="button"
                         class="btn btn-link p-0 me-2"
@@ -358,12 +508,14 @@ $services = $db->services->find(
                     </a>
                 </div>
 
+
                 <div
                     class="d-flex justify-content-between align-items-center mb-4"
                 >
                     <h3 class="text-primary mb-0">
                         🧺 Place a Laundry Order
                     </h3>
+
 
                     <a
                         href="logout.php"
@@ -372,6 +524,7 @@ $services = $db->services->find(
                         Logout
                     </a>
                 </div>
+
 
                 <p class="text-muted">
                     Logged in as:
@@ -384,11 +537,14 @@ $services = $db->services->find(
                     </strong>
                 </p>
 
+
                 <?= $notifHtml ?>
+
 
                 <?php if ($message !== ''): ?>
                     <?= $message ?>
                 <?php endif; ?>
+
 
                 <div class="card shadow-sm">
                     <div class="card-body p-4">
@@ -404,6 +560,7 @@ $services = $db->services->find(
                                     Service
                                 </label>
 
+
                                 <select
                                     name="service_id"
                                     id="serviceSelect"
@@ -413,47 +570,73 @@ $services = $db->services->find(
                                     <?php
                                     $serviceCount = 0;
 
+
                                     foreach ($services as $service):
                                         $serviceCount++;
-                                        $serviceIdValue = (string) (
-                                            $service['_id']
-                                        );
-                                        $serviceName = (string) (
-                                            $service['service_name']
-                                            ?? 'Unnamed service'
-                                        );
-                                        $basePrice = (float) (
-                                            $service['base_price'] ?? 0
-                                        );
-                                        $extraPerKg = (float) (
-                                            $service['extra_per_kg'] ?? 0
-                                        );
-                                        $minKg = (float) (
-                                            $service['min_kg'] ?? 0
-                                        );
-                                        $maxKg = (float) (
-                                            $service['max_kg'] ?? 0
-                                        );
+
+
+                                        $serviceIdValue =
+                                            (string) $service['_id'];
+
+
+                                        $serviceName =
+                                            (string) (
+                                                $service['service_name']
+                                                ?? 'Unnamed service'
+                                            );
+
+
+                                        $basePrice =
+                                            (float) (
+                                                $service['base_price'] ?? 0
+                                            );
+
+
+                                        $extraPerKg =
+                                            (float) (
+                                                $service['extra_per_kg'] ?? 0
+                                            );
+
+
+                                        $minKg =
+                                            (float) (
+                                                $service['min_kg'] ?? 0
+                                            );
+
+
+                                        $maxKg =
+                                            (float) (
+                                                $service['max_kg'] ?? 0
+                                            );
                                     ?>
                                         <option
-                                            value="<?= h($serviceIdValue) ?>"
-                                            data-base="<?= h($basePrice) ?>"
-                                            data-extra="<?= h($extraPerKg) ?>"
-                                            data-min="<?= h($minKg) ?>"
-                                            data-max="<?= h($maxKg) ?>"
+                                            value="<?= htmlspecialchars(
+                                                $serviceIdValue,
+                                                ENT_QUOTES,
+                                                'UTF-8'
+                                            ) ?>"
+                                            data-base="<?= $basePrice ?>"
+                                            data-extra="<?= $extraPerKg ?>"
+                                            data-min="<?= $minKg ?>"
+                                            data-max="<?= $maxKg ?>"
                                         >
-                                            <?= h($serviceName) ?>
+                                            <?= htmlspecialchars(
+                                                $serviceName,
+                                                ENT_QUOTES,
+                                                'UTF-8'
+                                            ) ?>
                                             - ₱<?= number_format(
                                                 $basePrice,
                                                 2
                                             ) ?>
-                                            (<?= h($minKg) ?>–<?= h($maxKg) ?>kg),
+                                            (<?= $minKg ?>–<?= $maxKg ?>kg),
                                             +₱<?= number_format(
                                                 $extraPerKg,
                                                 2
                                             ) ?>/kg after
                                         </option>
                                     <?php endforeach; ?>
+
 
                                     <?php if ($serviceCount === 0): ?>
                                         <option
@@ -467,6 +650,7 @@ $services = $db->services->find(
                                 </select>
                             </div>
 
+
                             <div class="mb-3">
                                 <label
                                     for="weightInput"
@@ -474,6 +658,7 @@ $services = $db->services->find(
                                 >
                                     Weight (kg)
                                 </label>
+
 
                                 <input
                                     type="number"
@@ -485,11 +670,13 @@ $services = $db->services->find(
                                     required
                                 >
 
+
                                 <small
                                     id="weightHint"
                                     class="text-muted"
                                 ></small>
                             </div>
+
 
                             <div
                                 id="priceEstimate"
@@ -499,12 +686,6 @@ $services = $db->services->find(
                                 <strong>₱0.00</strong>
                             </div>
 
-                            <?php if ($serviceCount === 0): ?>
-                                <div class="alert alert-warning">
-                                    No laundry services are currently available.
-                                    Please contact the administrator.
-                                </div>
-                            <?php endif; ?>
 
                             <button
                                 type="submit"
@@ -519,6 +700,7 @@ $services = $db->services->find(
                     </div>
                 </div>
 
+
                 <p class="text-center mt-3">
                     <a href="track_order.php">
                         📦 View My Orders
@@ -532,75 +714,119 @@ $services = $db->services->find(
         </div>
     </div>
 
+
     <script>
-    function goBack() {
-        if (window.history.length > 1) {
-            window.history.back();
-            return;
+        function goBack() {
+            if (window.history.length > 1) {
+                window.history.back();
+                return;
+            }
+
+            window.location.href = '../index.php';
         }
 
-        window.location.href = '../index.php';
-    }
+        const select =
+            document.getElementById('serviceSelect');
 
-    const select = document.getElementById('serviceSelect');
-    const weightInput = document.getElementById('weightInput');
-    const hint = document.getElementById('weightHint');
-    const estimate = document.getElementById('priceEstimate');
 
-    function updateEstimate() {
-        if (
-            !select ||
-            !estimate ||
-            select.options.length === 0 ||
-            select.value === ''
-        ) {
-            if (estimate) {
+        const weightInput =
+            document.getElementById('weightInput');
+
+
+        const hint =
+            document.getElementById('weightHint');
+
+
+        const estimate =
+            document.getElementById('priceEstimate');
+
+
+        function updateEstimate() {
+            if (
+                !select ||
+                select.options.length === 0 ||
+                select.value === ''
+            ) {
+                estimate.innerHTML =
+                    'Estimated Total: <strong>₱0.00</strong>';
+
+
+                return;
+            }
+
+
+            const option =
+                select.options[select.selectedIndex];
+
+
+            const base =
+                parseFloat(option.dataset.base || '0');
+
+
+            const extra =
+                parseFloat(option.dataset.extra || '0');
+
+
+            const min =
+                parseFloat(option.dataset.min || '0');
+
+
+            const max =
+                parseFloat(option.dataset.max || '0');
+
+
+            const weight =
+                parseFloat(weightInput.value || '0');
+
+
+            weightInput.min = min;
+
+
+            hint.textContent =
+                `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
+                `covers up to ${max}kg, then ` +
+                `+₱${extra.toFixed(2)}/kg after.`;
+
+
+            if (
+                !Number.isNaN(weight) &&
+                weight >= min
+            ) {
+                let total = base;
+
+
+                if (weight > max) {
+                    total += (weight - max) * extra;
+                }
+
+
+                estimate.innerHTML =
+                    `Estimated Total: ` +
+                    `<strong>₱${total.toFixed(2)}</strong>`;
+            } else {
                 estimate.innerHTML =
                     'Estimated Total: <strong>₱0.00</strong>';
             }
-
-            return;
         }
 
-        const option = select.options[select.selectedIndex];
-        const base = parseFloat(option.dataset.base || '0');
-        const extra = parseFloat(option.dataset.extra || '0');
-        const min = parseFloat(option.dataset.min || '0');
-        const max = parseFloat(option.dataset.max || '0');
-        const weight = parseFloat(weightInput.value || '0');
 
-        weightInput.min = min;
-
-        hint.textContent =
-            `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
-            `covers up to ${max}kg, then ` +
-            `+₱${extra.toFixed(2)}/kg after.`;
-
-        if (!Number.isNaN(weight) && weight >= min) {
-            let total = base;
-
-            if (weight > max) {
-                total += (weight - max) * extra;
-            }
-
-            estimate.innerHTML =
-                `Estimated Total: ` +
-                `<strong>₱${total.toFixed(2)}</strong>`;
-        } else {
-            estimate.innerHTML =
-                'Estimated Total: <strong>₱0.00</strong>';
+        if (select) {
+            select.addEventListener(
+                'change',
+                updateEstimate
+            );
         }
-    }
 
-    if (select) {
-        select.addEventListener('change', updateEstimate);
-    }
 
-    if (weightInput) {
-        weightInput.addEventListener('input', updateEstimate);
-    }
+        if (weightInput) {
+            weightInput.addEventListener(
+                'input',
+                updateEstimate
+            );
+        }
 
-    updateEstimate();
+
+        updateEstimate();
     </script>
 </body>
 </html>
