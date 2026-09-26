@@ -196,13 +196,6 @@ try {
 <body class="bg-light">
     <div class="container py-5">
         <div class="d-flex align-items-center gap-2 mb-3">
-            <a
-                href="../index.php"
-                class="btn btn-outline-primary btn-sm"
-            >
-                Home
-            </a>
-
             <button
                 type="button"
                 class="btn btn-outline-secondary btn-sm"
@@ -210,6 +203,13 @@ try {
             >
                 ← Back
             </button>
+
+            <a
+                href="../index.php"
+                class="btn btn-outline-primary btn-sm"
+            >
+                Home
+            </a>
         </div>
 
         <div
@@ -402,7 +402,9 @@ try {
                                 </td>
                             </tr>
                         <?php else: ?>
-                            <?php foreach ($reservations as $reservation): ?>
+                            <?php foreach (
+                                $reservations as $reservation
+                            ): ?>
                                 <?php
                                 $reservationId = (string) (
                                     $reservation['_id'] ?? ''
