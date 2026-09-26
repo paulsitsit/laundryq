@@ -34,7 +34,6 @@ $userId = new ObjectId($userIdString);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $serviceId = trim((string) ($_POST['service_id'] ?? ''));
-
     $weightKg = filter_var(
         $_POST['weight_kg'] ?? null,
         FILTER_VALIDATE_FLOAT
@@ -56,8 +55,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $service = $db->services->findOne([
                 '_id' => new ObjectId($serviceId),
-                'is_active' => [
-                    '$ne' => false
+                '$or' => [
+                    [
+                        'is_active' => true
+                    ],
+                    [
+                        'is_active' => [
+                            '$exists' => false
+                        ]
+                    ]
                 ]
             ]);
 
@@ -325,8 +331,15 @@ try {
 
 $services = $db->services->find(
     [
-        'is_active' => [
-            '$ne' => false
+        '$or' => [
+            [
+                'is_active' => true
+            ],
+            [
+                'is_active' => [
+                    '$exists' => false
+                ]
+            ]
         ]
     ],
     [
@@ -361,7 +374,6 @@ $services = $db->services->find(
                     >
                         Home
                     </a>
-
                     <button
                         type="button"
                         class="btn btn-outline-secondary btn-sm"
@@ -377,7 +389,6 @@ $services = $db->services->find(
                     <h3 class="text-primary mb-0">
                         🧺 Place a Laundry Order
                     </h3>
-
                     <a
                         href="logout.php"
                         class="btn btn-outline-secondary btn-sm"
@@ -486,7 +497,6 @@ $services = $db->services->find(
                                 >
                                     Weight (kg)
                                 </label>
-
                                 <input
                                     type="number"
                                     name="weight_kg"
@@ -496,7 +506,6 @@ $services = $db->services->find(
                                     step="0.1"
                                     required
                                 >
-
                                 <small
                                     id="weightHint"
                                     class="text-muted"
@@ -510,6 +519,13 @@ $services = $db->services->find(
                                 Estimated Total:
                                 <strong>₱0.00</strong>
                             </div>
+
+                            <?php if ($serviceCount === 0): ?>
+                                <div class="alert alert-warning">
+                                    No laundry services are currently available.
+                                    Please contact the administrator.
+                                </div>
+                            <?php endif; ?>
 
                             <button
                                 type="submit"
@@ -563,7 +579,6 @@ $services = $db->services->find(
                 estimate.innerHTML =
                     'Estimated Total: <strong>₱0.00</strong>';
             }
-
             return;
         }
 
@@ -575,7 +590,6 @@ $services = $db->services->find(
         const weight = parseFloat(weightInput.value || '0');
 
         weightInput.min = min;
-
         hint.textContent =
             `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
             `covers up to ${max}kg, then ` +
