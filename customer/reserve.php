@@ -4,19 +4,12 @@
 declare(strict_types=1);
 
 session_start();
-
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\UTCDateTime;
 
 $message = '';
-
-/*
-|--------------------------------------------------------------------------
-| Check login session
-|--------------------------------------------------------------------------
-*/
 
 if (!isset($_SESSION['user_id'])) {
     die(
@@ -25,16 +18,9 @@ if (!isset($_SESSION['user_id'])) {
     );
 }
 
-$userIdString = trim(
-    (string) $_SESSION['user_id']
-);
+$userIdString = trim((string) $_SESSION['user_id']);
 
-if (
-    !preg_match(
-        '/^[a-fA-F0-9]{24}$/',
-        $userIdString
-    )
-) {
+if (!preg_match('/^[a-fA-F0-9]{24}$/', $userIdString)) {
     session_destroy();
 
     die(
@@ -46,80 +32,50 @@ if (
 $userId = new ObjectId($userIdString);
 $today = date('Y-m-d');
 
-/*
-|--------------------------------------------------------------------------
-| Create reservation
-|--------------------------------------------------------------------------
-*/
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $date = trim(
-        $_POST['reservation_date'] ?? ''
-    );
-
-    $time = trim(
-        $_POST['reservation_time'] ?? ''
-    );
-
-    $pickupDate = trim(
-        $_POST['pickup_date'] ?? ''
-    );
-
-    $pickupTime = trim(
-        $_POST['pickup_time'] ?? ''
-    );
-
-    $serviceType = trim(
+    $date = trim((string) ($_POST['reservation_date'] ?? ''));
+    $time = trim((string) ($_POST['reservation_time'] ?? ''));
+    $pickupDate = trim((string) ($_POST['pickup_date'] ?? ''));
+    $pickupTime = trim((string) ($_POST['pickup_time'] ?? ''));
+    $serviceType = trim((string) (
         $_POST['service_type'] ?? 'Drop-off'
-    );
-
-    $serviceId = trim(
-        $_POST['service_id'] ?? ''
-    );
-
+    ));
+    $serviceId = trim((string) ($_POST['service_id'] ?? ''));
     $weightKg = filter_var(
         $_POST['weight_kg'] ?? null,
         FILTER_VALIDATE_FLOAT
     );
+    $notes = trim((string) ($_POST['notes'] ?? ''));
 
-    $notes = trim(
-        $_POST['notes'] ?? ''
-    );
-
-    $validDate = DateTime::createFromFormat(
-        '!Y-m-d',
-        $date
-    );
-
+    $validDate = DateTime::createFromFormat('!Y-m-d', $date);
     $validPickupDate = DateTime::createFromFormat(
         '!Y-m-d',
         $pickupDate
     );
 
     $dateIsValid =
-        $validDate &&
+        $validDate !== false &&
+        $validDate !== null &&
         $validDate->format('Y-m-d') === $date;
 
     $pickupDateIsValid =
-        $validPickupDate &&
+        $validPickupDate !== false &&
+        $validPickupDate !== null &&
         $validPickupDate->format('Y-m-d') === $pickupDate;
 
     $timeIsValid = preg_match(
         '/^(?:[01]\d|2[0-3]):[0-5]\d$/',
         $time
-    );
+    ) === 1;
 
     $pickupTimeIsValid =
         $pickupTime === '' ||
         preg_match(
             '/^(?:[01]\d|2[0-3]):[0-5]\d$/',
             $pickupTime
-        );
+        ) === 1;
 
-    if (
-        !$dateIsValid ||
-        !$pickupDateIsValid
-    ) {
+    if (!$dateIsValid || !$pickupDateIsValid) {
         $message = "
             <div class='alert alert-danger'>
                 Please select valid reservation and pick-up dates.
@@ -137,30 +93,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Pick-up date must be on or after the reservation date.
             </div>
         ";
-    } elseif (
-        !$timeIsValid ||
-        !$pickupTimeIsValid
-    ) {
+    } elseif (!$timeIsValid || !$pickupTimeIsValid) {
         $message = "
             <div class='alert alert-danger'>
                 Please select valid reservation and pick-up times.
             </div>
         ";
-    } elseif (
-        !preg_match(
-            '/^[a-fA-F0-9]{24}$/',
-            $serviceId
-        )
-    ) {
+    } elseif (!preg_match('/^[a-fA-F0-9]{24}$/', $serviceId)) {
         $message = "
             <div class='alert alert-danger'>
                 Invalid service selected.
             </div>
         ";
-    } elseif (
-        $weightKg === false ||
-        $weightKg <= 0
-    ) {
+    } elseif ($weightKg === false || $weightKg <= 0) {
         $message = "
             <div class='alert alert-danger'>
                 Please enter a valid laundry weight.
@@ -181,8 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $holidayName = htmlspecialchars(
                     (string) (
-                        $holiday['holiday_name']
-                        ?? 'Holiday'
+                        $holiday['holiday_name'] ?? 'Holiday'
                     ),
                     ENT_QUOTES,
                     'UTF-8'
@@ -191,8 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "
                     <div class='alert alert-danger'>
                         Sorry, {$safeDate} is a holiday
-                        ({$holidayName}).
-                        The shop is closed on this date.
+                        ({$holidayName}). The shop is closed on this date.
                     </div>
                 ";
             } else {
@@ -206,8 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$service) {
                     $message = "
                         <div class='alert alert-danger'>
-                            The selected service was not found
-                            or is inactive.
+                            The selected service was not found or is inactive.
                         </div>
                     ";
                 } else {
@@ -224,47 +166,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     ENT_QUOTES,
                                     'UTF-8'
                                 ) .
-                                "kg.
+                                " kg.
                             </div>
                         ";
                     } else {
                         $db->reservations->insertOne([
                             'user_id' => $userId,
-
                             'reservation_date' => $date,
                             'reservation_time' => $time,
-
                             'requested_date' => null,
                             'requested_time' => null,
-
                             'original_date' => null,
                             'original_time' => null,
-
                             'pickup_date' => $pickupDate,
                             'pickup_time' => $pickupTime,
-
                             'service_type' => $serviceType,
-                            'service_id' =>
-                                new ObjectId($serviceId),
-
-                            'weight_kg' =>
-                                (float) $weightKg,
-
+                            'service_id' => new ObjectId($serviceId),
+                            'weight_kg' => (float) $weightKg,
                             'notes' => $notes,
-
                             'status' => 'Pending',
                             'notified' => false,
                             'service_change_result' => null,
-
                             'updated_by' => null,
                             'admin_notes' => null,
                             'cancellation_reason' => null,
-
-                            'created_at' =>
-                                new UTCDateTime(),
-
-                            'updated_at' =>
-                                new UTCDateTime()
+                            'created_at' => new UTCDateTime(),
+                            'updated_at' => new UTCDateTime()
                         ]);
 
                         $message = "
@@ -278,8 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             error_log(
-                'Reservation error: ' .
-                $e->getMessage()
+                'Reservation error: ' . $e->getMessage()
             );
 
             $message = "
@@ -291,12 +217,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
-
-/*
-|--------------------------------------------------------------------------
-| Load active services
-|--------------------------------------------------------------------------
-*/
 
 $services = $db->services->find(
     [
@@ -310,12 +230,6 @@ $services = $db->services->find(
         ]
     ]
 );
-
-/*
-|--------------------------------------------------------------------------
-| Load holidays
-|--------------------------------------------------------------------------
-*/
 
 $holidays = $db->holidays->find(
     [
@@ -393,30 +307,36 @@ if ($holidayNamesJson === false) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
-
     <title>Book a Reservation - LaundryQ</title>
-
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
 </head>
-
 <body class="bg-light">
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <a
-                    href="../index.php"
-                    class="text-decoration-none d-block mb-2"
-                >
-                    ← Back to Home
-                </a>
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <a
+                        href="../index.php"
+                        class="btn btn-outline-primary btn-sm"
+                    >
+                        Home
+                    </a>
+
+                    <button
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        onclick="goBack()"
+                    >
+                        ← Back
+                    </button>
+                </div>
 
                 <div
                     class="d-flex justify-content-between align-items-center mb-4"
@@ -495,36 +415,30 @@ if ($holidayNamesJson === false) {
                                     foreach ($services as $row):
                                         $serviceCount++;
 
-                                        $serviceObjectId =
-                                            (string) (
-                                                $row['_id'] ?? ''
-                                            );
+                                        $serviceObjectId = (string) (
+                                            $row['_id'] ?? ''
+                                        );
 
-                                        $serviceName =
-                                            (string) (
-                                                $row['service_name']
-                                                ?? 'Unnamed service'
-                                            );
+                                        $serviceName = (string) (
+                                            $row['service_name']
+                                            ?? 'Unnamed service'
+                                        );
 
-                                        $basePrice =
-                                            (float) (
-                                                $row['base_price'] ?? 0
-                                            );
+                                        $basePrice = (float) (
+                                            $row['base_price'] ?? 0
+                                        );
 
-                                        $extraPerKg =
-                                            (float) (
-                                                $row['extra_per_kg'] ?? 0
-                                            );
+                                        $extraPerKg = (float) (
+                                            $row['extra_per_kg'] ?? 0
+                                        );
 
-                                        $minKg =
-                                            (float) (
-                                                $row['min_kg'] ?? 0
-                                            );
+                                        $minKg = (float) (
+                                            $row['min_kg'] ?? 0
+                                        );
 
-                                        $maxKg =
-                                            (float) (
-                                                $row['max_kg'] ?? 0
-                                            );
+                                        $maxKg = (float) (
+                                            $row['max_kg'] ?? 0
+                                        );
                                     ?>
                                         <option
                                             value="<?= htmlspecialchars(
@@ -542,8 +456,7 @@ if ($holidayNamesJson === false) {
                                                 ENT_QUOTES,
                                                 'UTF-8'
                                             ) ?>
-                                            -
-                                            ₱<?= number_format(
+                                            - ₱<?= number_format(
                                                 $basePrice,
                                                 2
                                             ) ?>
@@ -739,153 +652,111 @@ if ($holidayNamesJson === false) {
     </div>
 
     <script>
-        const holidayDates = <?= $holidayDatesJson ?>;
-        const holidayNames = <?= $holidayNamesJson ?>;
-
-        const dateInput =
-            document.getElementById('dateInput');
-
-        const pickupDateInput =
-            document.getElementById('pickupDateInput');
-
-        const warning =
-            document.getElementById('holidayWarning');
-
-        const submitBtn =
-            document.getElementById('submitBtn');
-
-        const select =
-            document.getElementById('serviceSelect');
-
-        const weightInput =
-            document.getElementById('weightInput');
-
-        const hint =
-            document.getElementById('weightHint');
-
-        const estimate =
-            document.getElementById('priceEstimate');
-
-        function checkHoliday() {
-            const selected = dateInput.value;
-
-            if (holidayDates.includes(selected)) {
-                const holidayName =
-                    holidayNames[selected] || 'Holiday';
-
-                warning.textContent =
-                    `⚠️ The shop is closed on this date ` +
-                    `(${holidayName}). Please choose another date.`;
-
-                warning.classList.remove('d-none');
-                submitBtn.disabled = true;
-            } else {
-                warning.textContent = '';
-                warning.classList.add('d-none');
-
-                if (
-                    select.options.length > 0 &&
-                    select.value !== ''
-                ) {
-                    submitBtn.disabled = false;
-                }
-            }
+    function goBack() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
         }
 
-        function checkPickupDate() {
-            if (
-                pickupDateInput.value &&
-                dateInput.value &&
-                pickupDateInput.value < dateInput.value
-            ) {
-                pickupDateInput.value = dateInput.value;
+        window.location.href = '../index.php';
+    }
+
+    const holidayDates = <?= $holidayDatesJson ?>;
+    const holidayNames = <?= $holidayNamesJson ?>;
+    const dateInput = document.getElementById('dateInput');
+    const pickupDateInput = document.getElementById('pickupDateInput');
+    const warning = document.getElementById('holidayWarning');
+    const submitBtn = document.getElementById('submitBtn');
+    const select = document.getElementById('serviceSelect');
+    const weightInput = document.getElementById('weightInput');
+    const hint = document.getElementById('weightHint');
+    const estimate = document.getElementById('priceEstimate');
+
+    function checkHoliday() {
+        const selected = dateInput.value;
+
+        if (holidayDates.includes(selected)) {
+            const holidayName = holidayNames[selected] || 'Holiday';
+
+            warning.textContent =
+                `⚠️ The shop is closed on this date ` +
+                `(${holidayName}). Please choose another date.`;
+
+            warning.classList.remove('d-none');
+            submitBtn.disabled = true;
+        } else {
+            warning.textContent = '';
+            warning.classList.add('d-none');
+
+            if (select.options.length > 0 && select.value !== '') {
+                submitBtn.disabled = false;
             }
         }
+    }
 
-        function updateEstimate() {
-            if (
-                !select ||
-                select.options.length === 0 ||
-                select.value === ''
-            ) {
-                estimate.innerHTML =
-                    'Estimated Total: <strong>₱0.00</strong>';
+    function checkPickupDate() {
+        if (
+            pickupDateInput.value &&
+            dateInput.value &&
+            pickupDateInput.value < dateInput.value
+        ) {
+            pickupDateInput.value = dateInput.value;
+        }
+    }
 
-                return;
-            }
-
-            const option =
-                select.options[select.selectedIndex];
-
-            const base =
-                parseFloat(option.dataset.base || '0');
-
-            const extra =
-                parseFloat(option.dataset.extra || '0');
-
-            const min =
-                parseFloat(option.dataset.min || '0');
-
-            const max =
-                parseFloat(option.dataset.max || '0');
-
-            const weight =
-                parseFloat(weightInput.value || '0');
-
-            weightInput.min = min;
-
-            hint.textContent =
-                `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
-                `covers up to ${max}kg, then ` +
-                `+₱${extra.toFixed(2)}/kg after.`;
-
-            if (
-                !Number.isNaN(weight) &&
-                weight >= min
-            ) {
-                let total = base;
-
-                if (weight > max) {
-                    total += (weight - max) * extra;
-                }
-
-                estimate.innerHTML =
-                    `Estimated Total: ` +
-                    `<strong>₱${total.toFixed(2)}</strong>`;
-            } else {
-                estimate.innerHTML =
-                    'Estimated Total: <strong>₱0.00</strong>';
-            }
+    function updateEstimate() {
+        if (
+            !select ||
+            select.options.length === 0 ||
+            select.value === ''
+        ) {
+            estimate.innerHTML =
+                'Estimated Total: <strong>₱0.00</strong>';
+            return;
         }
 
-        dateInput.addEventListener(
-            'change',
-            function () {
-                pickupDateInput.min =
-                    dateInput.value || '<?= $today ?>';
+        const option = select.options[select.selectedIndex];
+        const base = parseFloat(option.dataset.base || '0');
+        const extra = parseFloat(option.dataset.extra || '0');
+        const min = parseFloat(option.dataset.min || '0');
+        const max = parseFloat(option.dataset.max || '0');
+        const weight = parseFloat(weightInput.value || '0');
 
-                checkHoliday();
-                checkPickupDate();
+        weightInput.min = min;
+
+        hint.textContent =
+            `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
+            `covers up to ${max}kg, then ` +
+            `+₱${extra.toFixed(2)}/kg after.`;
+
+        if (!Number.isNaN(weight) && weight >= min) {
+            let total = base;
+
+            if (weight > max) {
+                total += (weight - max) * extra;
             }
-        );
 
-        pickupDateInput.addEventListener(
-            'change',
-            checkPickupDate
-        );
+            estimate.innerHTML =
+                `Estimated Total: ` +
+                `<strong>₱${total.toFixed(2)}</strong>`;
+        } else {
+            estimate.innerHTML =
+                'Estimated Total: <strong>₱0.00</strong>';
+        }
+    }
 
-        select.addEventListener(
-            'change',
-            updateEstimate
-        );
-
-        weightInput.addEventListener(
-            'input',
-            updateEstimate
-        );
-
-        updateEstimate();
+    dateInput.addEventListener('change', function () {
+        pickupDateInput.min = dateInput.value || '<?= $today ?>';
         checkHoliday();
+        checkPickupDate();
+    });
+
+    pickupDateInput.addEventListener('change', checkPickupDate);
+    select.addEventListener('change', updateEstimate);
+    weightInput.addEventListener('input', updateEstimate);
+
+    updateEstimate();
+    checkHoliday();
     </script>
 </body>
 </html>

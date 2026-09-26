@@ -4,7 +4,6 @@
 declare(strict_types=1);
 
 session_start();
-
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
@@ -13,12 +12,6 @@ use MongoDB\BSON\UTCDateTime;
 $message = '';
 $notifHtml = '';
 
-/*
-|--------------------------------------------------------------------------
-| Authentication
-|--------------------------------------------------------------------------
-*/
-
 if (!isset($_SESSION['user_id'])) {
     die(
         "You must be logged in to place an order. " .
@@ -26,16 +19,9 @@ if (!isset($_SESSION['user_id'])) {
     );
 }
 
-$userIdString = trim(
-    (string) $_SESSION['user_id']
-);
+$userIdString = trim((string) $_SESSION['user_id']);
 
-if (
-    !preg_match(
-        '/^[a-fA-F0-9]{24}$/',
-        $userIdString
-    )
-) {
+if (!preg_match('/^[a-fA-F0-9]{24}$/', $userIdString)) {
     session_destroy();
 
     die(
@@ -46,37 +32,21 @@ if (
 
 $userId = new ObjectId($userIdString);
 
-/*
-|--------------------------------------------------------------------------
-| Place order
-|--------------------------------------------------------------------------
-*/
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $serviceId = trim(
-        $_POST['service_id'] ?? ''
-    );
+    $serviceId = trim((string) ($_POST['service_id'] ?? ''));
 
     $weightKg = filter_var(
         $_POST['weight_kg'] ?? null,
         FILTER_VALIDATE_FLOAT
     );
 
-    if (
-        !preg_match(
-            '/^[a-fA-F0-9]{24}$/',
-            $serviceId
-        )
-    ) {
+    if (!preg_match('/^[a-fA-F0-9]{24}$/', $serviceId)) {
         $message = "
             <div class='alert alert-danger'>
                 Invalid service selected.
             </div>
         ";
-    } elseif (
-        $weightKg === false ||
-        $weightKg <= 0
-    ) {
+    } elseif ($weightKg === false || $weightKg <= 0) {
         $message = "
             <div class='alert alert-danger'>
                 Please enter a valid laundry weight.
@@ -98,21 +68,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 ";
             } else {
-                $minKg = (float) (
-                    $service['min_kg'] ?? 0
-                );
-
-                $maxKg = (float) (
-                    $service['max_kg'] ?? 0
-                );
-
-                $basePrice = (float) (
-                    $service['base_price'] ?? 0
-                );
-
-                $extraPerKg = (float) (
-                    $service['extra_per_kg'] ?? 0
-                );
+                $minKg = (float) ($service['min_kg'] ?? 0);
+                $maxKg = (float) ($service['max_kg'] ?? 0);
+                $basePrice = (float) ($service['base_price'] ?? 0);
+                $extraPerKg = (float) ($service['extra_per_kg'] ?? 0);
 
                 if ($weightKg < $minKg) {
                     $message = "
@@ -123,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ENT_QUOTES,
                                 'UTF-8'
                             ) .
-                            "kg.
+                            " kg.
                         </div>
                     ";
                 } else {
@@ -136,19 +95,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $db->orders->insertOne([
                         'user_id' => $userId,
-                        'service_id' =>
-                            new ObjectId($serviceId),
-                        'weight_kg' =>
-                            (float) $weightKg,
-                        'total_amount' =>
-                            round($totalAmount, 2),
+                        'service_id' => new ObjectId($serviceId),
+                        'weight_kg' => (float) $weightKg,
+                        'total_amount' => round($totalAmount, 2),
                         'status' => 'Pending',
                         'notified' => false,
                         'service_change_result' => null,
-                        'created_at' =>
-                            new UTCDateTime(),
-                        'updated_at' =>
-                            new UTCDateTime()
+                        'created_at' => new UTCDateTime(),
+                        'updated_at' => new UTCDateTime()
                     ]);
 
                     $message = "
@@ -177,12 +131,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Reservation notifications
-|--------------------------------------------------------------------------
-*/
-
 try {
     $reservationNotifications = $db->reservations->find(
         [
@@ -199,8 +147,7 @@ try {
     $reservationIdsToMark = [];
 
     foreach ($reservationNotifications as $notification) {
-        $reservationIdsToMark[] =
-            $notification['_id'];
+        $reservationIdsToMark[] = $notification['_id'];
 
         $reservationId = htmlspecialchars(
             (string) $notification['_id'],
@@ -209,51 +156,38 @@ try {
         );
 
         $serviceType = htmlspecialchars(
-            (string) (
-                $notification['service_type'] ?? ''
-            ),
+            (string) ($notification['service_type'] ?? ''),
             ENT_QUOTES,
             'UTF-8'
         );
 
         $reservationDate = htmlspecialchars(
-            (string) (
-                $notification['reservation_date'] ?? ''
-            ),
+            (string) ($notification['reservation_date'] ?? ''),
             ENT_QUOTES,
             'UTF-8'
         );
 
         $reservationTime = htmlspecialchars(
-            (string) (
-                $notification['reservation_time'] ?? ''
-            ),
+            (string) ($notification['reservation_time'] ?? ''),
             ENT_QUOTES,
             'UTF-8'
         );
 
-        $status = (string) (
-            $notification['status'] ?? ''
-        );
-
-        $changeResult =
-            $notification['service_change_result']
-            ?? null;
+        $status = (string) ($notification['status'] ?? '');
+        $changeResult = $notification['service_change_result'] ?? null;
 
         if ($changeResult === 'approved') {
             $notifHtml .= "
                 <div class='alert alert-success'>
                     ✅ Your service change request for reservation
-                    #{$reservationId} was
-                    <strong>approved</strong>.
+                    #{$reservationId} was <strong>approved</strong>.
                 </div>
             ";
         } elseif ($changeResult === 'declined') {
             $notifHtml .= "
                 <div class='alert alert-danger'>
                     ❌ Your service change request for reservation
-                    #{$reservationId} was
-                    <strong>declined</strong>.
+                    #{$reservationId} was <strong>declined</strong>.
                 </div>
             ";
         } elseif ($status === 'Accepted') {
@@ -285,8 +219,7 @@ try {
         } elseif ($status === 'No-Show') {
             $notifHtml .= "
                 <div class='alert alert-warning'>
-                    ⚠️ You were marked as a
-                    <strong>No-Show</strong>.
+                    ⚠️ You were marked as a <strong>No-Show</strong>.
                 </div>
             ";
         }
@@ -304,8 +237,7 @@ try {
             [
                 '$set' => [
                     'notified' => true,
-                    'updated_at' =>
-                        new UTCDateTime()
+                    'updated_at' => new UTCDateTime()
                 ]
             ]
         );
@@ -316,12 +248,6 @@ try {
         $e->getMessage()
     );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Order notifications
-|--------------------------------------------------------------------------
-*/
 
 try {
     $orderNotifications = $db->orders->find(
@@ -345,8 +271,7 @@ try {
     $orderIdsToMark = [];
 
     foreach ($orderNotifications as $notification) {
-        $orderIdsToMark[] =
-            $notification['_id'];
+        $orderIdsToMark[] = $notification['_id'];
 
         $orderId = htmlspecialchars(
             (string) $notification['_id'],
@@ -355,8 +280,7 @@ try {
         );
 
         $changeResult =
-            $notification['service_change_result']
-            ?? null;
+            $notification['service_change_result'] ?? null;
 
         if ($changeResult === 'approved') {
             $notifHtml .= "
@@ -387,8 +311,7 @@ try {
             [
                 '$set' => [
                     'notified' => true,
-                    'updated_at' =>
-                        new UTCDateTime()
+                    'updated_at' => new UTCDateTime()
                 ]
             ]
         );
@@ -399,12 +322,6 @@ try {
         $e->getMessage()
     );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Load services
-|--------------------------------------------------------------------------
-*/
 
 $services = $db->services->find(
     [
@@ -423,30 +340,36 @@ $services = $db->services->find(
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
-
     <title>Place Order - LaundryQ</title>
-
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
 </head>
-
 <body class="bg-light">
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <a
-                    href="../index.php"
-                    class="text-decoration-none d-block mb-2"
-                >
-                    ← Back to Home
-                </a>
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <a
+                        href="../index.php"
+                        class="btn btn-outline-primary btn-sm"
+                    >
+                        Home
+                    </a>
+
+                    <button
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        onclick="goBack()"
+                    >
+                        ← Back
+                    </button>
+                </div>
 
                 <div
                     class="d-flex justify-content-between align-items-center mb-4"
@@ -502,61 +425,41 @@ $services = $db->services->find(
                                 >
                                     <?php
                                     $serviceCount = 0;
-
                                     foreach ($services as $service):
                                         $serviceCount++;
-
-                                        $serviceIdValue =
-                                            (string) $service['_id'];
-
-                                        $serviceName =
-                                            (string) (
-                                                $service['service_name']
-                                                ?? 'Unnamed service'
-                                            );
-
-                                        $basePrice =
-                                            (float) (
-                                                $service['base_price'] ?? 0
-                                            );
-
-                                        $extraPerKg =
-                                            (float) (
-                                                $service['extra_per_kg'] ?? 0
-                                            );
-
-                                        $minKg =
-                                            (float) (
-                                                $service['min_kg'] ?? 0
-                                            );
-
-                                        $maxKg =
-                                            (float) (
-                                                $service['max_kg'] ?? 0
-                                            );
+                                        $serviceIdValue = (string) (
+                                            $service['_id']
+                                        );
+                                        $serviceName = (string) (
+                                            $service['service_name']
+                                            ?? 'Unnamed service'
+                                        );
+                                        $basePrice = (float) (
+                                            $service['base_price'] ?? 0
+                                        );
+                                        $extraPerKg = (float) (
+                                            $service['extra_per_kg'] ?? 0
+                                        );
+                                        $minKg = (float) (
+                                            $service['min_kg'] ?? 0
+                                        );
+                                        $maxKg = (float) (
+                                            $service['max_kg'] ?? 0
+                                        );
                                     ?>
                                         <option
-                                            value="<?= htmlspecialchars(
-                                                $serviceIdValue,
-                                                ENT_QUOTES,
-                                                'UTF-8'
-                                            ) ?>"
-                                            data-base="<?= $basePrice ?>"
-                                            data-extra="<?= $extraPerKg ?>"
-                                            data-min="<?= $minKg ?>"
-                                            data-max="<?= $maxKg ?>"
+                                            value="<?= h($serviceIdValue) ?>"
+                                            data-base="<?= h($basePrice) ?>"
+                                            data-extra="<?= h($extraPerKg) ?>"
+                                            data-min="<?= h($minKg) ?>"
+                                            data-max="<?= h($maxKg) ?>"
                                         >
-                                            <?= htmlspecialchars(
-                                                $serviceName,
-                                                ENT_QUOTES,
-                                                'UTF-8'
-                                            ) ?>
-                                            -
-                                            ₱<?= number_format(
+                                            <?= h($serviceName) ?>
+                                            - ₱<?= number_format(
                                                 $basePrice,
                                                 2
                                             ) ?>
-                                            (<?= $minKg ?>–<?= $maxKg ?>kg),
+                                            (<?= h($minKg) ?>–<?= h($maxKg) ?>kg),
                                             +₱<?= number_format(
                                                 $extraPerKg,
                                                 2
@@ -635,89 +538,74 @@ $services = $db->services->find(
     </div>
 
     <script>
-        const select =
-            document.getElementById('serviceSelect');
+    function goBack() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
 
-        const weightInput =
-            document.getElementById('weightInput');
+        window.location.href = '../index.php';
+    }
 
-        const hint =
-            document.getElementById('weightHint');
+    const select = document.getElementById('serviceSelect');
+    const weightInput = document.getElementById('weightInput');
+    const hint = document.getElementById('weightHint');
+    const estimate = document.getElementById('priceEstimate');
 
-        const estimate =
-            document.getElementById('priceEstimate');
-
-        function updateEstimate() {
-            if (
-                !select ||
-                select.options.length === 0 ||
-                select.value === ''
-            ) {
-                estimate.innerHTML =
-                    'Estimated Total: <strong>₱0.00</strong>';
-
-                return;
-            }
-
-            const option =
-                select.options[select.selectedIndex];
-
-            const base =
-                parseFloat(option.dataset.base || '0');
-
-            const extra =
-                parseFloat(option.dataset.extra || '0');
-
-            const min =
-                parseFloat(option.dataset.min || '0');
-
-            const max =
-                parseFloat(option.dataset.max || '0');
-
-            const weight =
-                parseFloat(weightInput.value || '0');
-
-            weightInput.min = min;
-
-            hint.textContent =
-                `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
-                `covers up to ${max}kg, then ` +
-                `+₱${extra.toFixed(2)}/kg after.`;
-
-            if (
-                !Number.isNaN(weight) &&
-                weight >= min
-            ) {
-                let total = base;
-
-                if (weight > max) {
-                    total += (weight - max) * extra;
-                }
-
-                estimate.innerHTML =
-                    `Estimated Total: ` +
-                    `<strong>₱${total.toFixed(2)}</strong>`;
-            } else {
+    function updateEstimate() {
+        if (
+            !select ||
+            !estimate ||
+            select.options.length === 0 ||
+            select.value === ''
+        ) {
+            if (estimate) {
                 estimate.innerHTML =
                     'Estimated Total: <strong>₱0.00</strong>';
             }
+
+            return;
         }
 
-        if (select) {
-            select.addEventListener(
-                'change',
-                updateEstimate
-            );
-        }
+        const option = select.options[select.selectedIndex];
+        const base = parseFloat(option.dataset.base || '0');
+        const extra = parseFloat(option.dataset.extra || '0');
+        const min = parseFloat(option.dataset.min || '0');
+        const max = parseFloat(option.dataset.max || '0');
+        const weight = parseFloat(weightInput.value || '0');
 
-        if (weightInput) {
-            weightInput.addEventListener(
-                'input',
-                updateEstimate
-            );
-        }
+        weightInput.min = min;
 
-        updateEstimate();
+        hint.textContent =
+            `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
+            `covers up to ${max}kg, then ` +
+            `+₱${extra.toFixed(2)}/kg after.`;
+
+        if (!Number.isNaN(weight) && weight >= min) {
+            let total = base;
+
+            if (weight > max) {
+                total += (weight - max) * extra;
+            }
+
+            estimate.innerHTML =
+                `Estimated Total: ` +
+                `<strong>₱${total.toFixed(2)}</strong>`;
+        } else {
+            estimate.innerHTML =
+                'Estimated Total: <strong>₱0.00</strong>';
+        }
+    }
+
+    if (select) {
+        select.addEventListener('change', updateEstimate);
+    }
+
+    if (weightInput) {
+        weightInput.addEventListener('input', updateEstimate);
+    }
+
+    updateEstimate();
     </script>
 </body>
 </html>
