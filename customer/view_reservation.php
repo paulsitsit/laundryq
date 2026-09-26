@@ -4,7 +4,6 @@
 declare(strict_types=1);
 
 session_start();
-
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
@@ -17,16 +16,9 @@ if (!isset($_SESSION['user_id'])) {
     );
 }
 
-$userIdString = trim(
-    (string) $_SESSION['user_id']
-);
+$userIdString = trim((string) $_SESSION['user_id']);
 
-if (
-    !preg_match(
-        '/^[a-fA-F0-9]{24}$/',
-        $userIdString
-    )
-) {
+if (!preg_match('/^[a-fA-F0-9]{24}$/', $userIdString)) {
     session_destroy();
 
     die(
@@ -37,30 +29,20 @@ if (
 
 $userId = new ObjectId($userIdString);
 
-$reservationIdString = trim(
-    (string) (
-        $_GET['id'] ??
-        $_POST['reservation_id'] ??
-        ''
-    )
-);
+$reservationIdString = trim((string) (
+    $_GET['id'] ??
+    $_POST['reservation_id'] ??
+    ''
+));
 
-if (
-    !preg_match(
-        '/^[a-fA-F0-9]{24}$/',
-        $reservationIdString
-    )
-) {
+if (!preg_match('/^[a-fA-F0-9]{24}$/', $reservationIdString)) {
     die(
         "Invalid reservation ID. " .
         "<a href='my_reservations.php'>Back to reservations</a>"
     );
 }
 
-$reservationId = new ObjectId(
-    $reservationIdString
-);
-
+$reservationId = new ObjectId($reservationIdString);
 $message = '';
 
 function h(mixed $value): string
@@ -76,29 +58,50 @@ function h(mixed $value): string
     );
 }
 
+function asArray(mixed $document): ?array
+{
+    if ($document === null) {
+        return null;
+    }
+
+    if (is_array($document)) {
+        return $document;
+    }
+
+    if (method_exists($document, 'getArrayCopy')) {
+        return $document->getArrayCopy();
+    }
+
+    return null;
+}
+
 function getReservation(
     $collection,
     ObjectId $reservationId,
     ObjectId $userId,
     $servicesCollection
 ): ?array {
-    $reservation = $collection->findOne([
-        '_id' => $reservationId,
-        'user_id' => $userId
-    ]);
+    $reservation = asArray(
+        $collection->findOne([
+            '_id' => $reservationId,
+            'user_id' => $userId
+        ])
+    );
 
-    if (!$reservation) {
+    if ($reservation === null) {
         return null;
     }
 
     $serviceId = $reservation['service_id'] ?? null;
 
     if ($serviceId instanceof ObjectId) {
-        $service = $servicesCollection->findOne([
-            '_id' => $serviceId
-        ]);
+        $service = asArray(
+            $servicesCollection->findOne([
+                '_id' => $serviceId
+            ])
+        );
 
-        if ($service) {
+        if ($service !== null) {
             $reservation['service_name'] =
                 $service['service_name'] ?? '—';
         }
@@ -112,47 +115,34 @@ function getStatusMessage(string $status): string
     $messages = [
         'Pending' =>
             'Your reservation is waiting for admin approval.',
-
         'Accepted' =>
             'Your reservation has been accepted. Please arrive at the shop on your scheduled drop-off date and time.',
-
         'Arrived' =>
             'You have arrived. Your laundry service will now be processed.',
-
         'Washing' =>
             'Your laundry is currently being washed.',
-
         'Drying' =>
             'Your laundry is currently being dried.',
-
         'Folding' =>
             'Your laundry is currently being folded.',
-
         'In Progress' =>
             'Your laundry is currently being processed.',
-
         'Ready for Pick-Up' =>
             'Your laundry is ready. Please collect it at your scheduled pick-up date and time.',
-
         'Picked Up' =>
             'Your laundry has been picked up.',
-
         'Completed' =>
             'Your laundry service has been completed.',
-
         'No-Show' =>
             'You did not arrive for your scheduled drop-off. Your reservation has been marked as No-Show.',
-
         'Reschedule Requested' =>
             'Your reschedule request has been sent to the admin for approval.',
-
         'Rescheduled' =>
             'Your reservation has been successfully rescheduled.',
-
         'Cancelled' =>
             'Your reservation has been cancelled.',
-
-        'Declined',
+        'Declined' =>
+            'Your reservation was rejected by the admin.',
         'Rejected' =>
             'Your reservation was rejected by the admin.'
     ];
@@ -191,9 +181,8 @@ function reservationBadge(string $status): string
         '</span>';
 }
 
-function formatDateValue(
-    mixed $date
-): string {
+function formatDateValue(mixed $date): string
+{
     if (!$date) {
         return '—';
     }
@@ -207,9 +196,8 @@ function formatDateValue(
     return date('F j, Y', $timestamp);
 }
 
-function formatTimeValue(
-    mixed $time
-): string {
+function formatTimeValue(mixed $time): string
+{
     if (!$time) {
         return '—';
     }
@@ -223,26 +211,21 @@ function formatTimeValue(
     return date('g:i A', $timestamp);
 }
 
-function isValidFutureDate(
-    string $date
-): bool {
-    $parsed = DateTime::createFromFormat(
-        '!Y-m-d',
-        $date
-    );
+function isValidFutureDate(string $date): bool
+{
+    $parsed = DateTime::createFromFormat('!Y-m-d', $date);
 
     return $parsed !== false &&
         $parsed->format('Y-m-d') === $date &&
         $date >= date('Y-m-d');
 }
 
-function isValidTime(
-    string $time
-): bool {
-    return (bool) preg_match(
+function isValidTime(string $time): bool
+{
+    return preg_match(
         '/^(?:[01]\d|2[0-3]):[0-5]\d$/',
         $time
-    );
+    ) === 1;
 }
 
 try {
@@ -253,7 +236,7 @@ try {
         $db->services
     );
 
-    if (!$reservation) {
+    if ($reservation === null) {
         die(
             "Reservation not found. " .
             "<a href='my_reservations.php'>Back to reservations</a>"
@@ -271,23 +254,17 @@ try {
     );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Request reschedule
-|--------------------------------------------------------------------------
-*/
-
 if (
     $_SERVER['REQUEST_METHOD'] === 'POST' &&
     ($_POST['action'] ?? '') === 'request_reschedule'
 ) {
-    $newDate = trim(
+    $newDate = trim((string) (
         $_POST['new_date'] ?? ''
-    );
+    ));
 
-    $newTime = trim(
+    $newTime = trim((string) (
         $_POST['new_time'] ?? ''
-    );
+    ));
 
     if (
         !isValidFutureDate($newDate) ||
@@ -316,13 +293,11 @@ if (
                 ],
                 [
                     '$set' => [
-                        'status' =>
-                            'Reschedule Requested',
+                        'status' => 'Reschedule Requested',
                         'requested_date' => $newDate,
                         'requested_time' => $newTime,
                         'notified' => false,
-                        'updated_at' =>
-                            new UTCDateTime()
+                        'updated_at' => new UTCDateTime()
                     ]
                 ]
             );
@@ -355,8 +330,7 @@ if (
 
             $message = "
                 <div class='alert alert-danger'>
-                    A database error occurred.
-                    Please try again.
+                    A database error occurred. Please try again.
                 </div>
             ";
         }
@@ -371,29 +345,25 @@ $statusClass = 'info';
 
 if ($status === 'Pending') {
     $statusClass = 'warning';
-} elseif (
-    in_array(
-        $status,
-        [
-            'Completed',
-            'Picked Up'
-        ],
-        true
-    )
-) {
+} elseif (in_array(
+    $status,
+    [
+        'Completed',
+        'Picked Up'
+    ],
+    true
+)) {
     $statusClass = 'success';
-} elseif (
-    in_array(
-        $status,
-        [
-            'No-Show',
-            'Cancelled',
-            'Declined',
-            'Rejected'
-        ],
-        true
-    )
-) {
+} elseif (in_array(
+    $status,
+    [
+        'No-Show',
+        'Cancelled',
+        'Declined',
+        'Rejected'
+    ],
+    true
+)) {
     $statusClass = 'danger';
 }
 ?>
@@ -401,19 +371,15 @@ if ($status === 'Pending') {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
-
     <title>Reservation Details - LaundryQ</title>
-
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
-
     <style>
         .detail-card {
             background: #f8f9fa;
@@ -469,21 +435,20 @@ if ($status === 'Pending') {
         }
     </style>
 </head>
-
 <body class="bg-light">
     <div class="container py-5">
-        <div class="mb-2">
+        <div class="mb-3">
             <button
                 type="button"
-                class="btn btn-link p-0 me-2"
-                onclick="history.back();"
+                class="btn btn-outline-secondary btn-sm me-2"
+                onclick="goBack()"
             >
                 ← Back
             </button>
 
             <a
                 href="../index.php"
-                class="text-decoration-none"
+                class="btn btn-outline-primary btn-sm"
             >
                 Home
             </a>
@@ -493,9 +458,7 @@ if ($status === 'Pending') {
             class="d-flex justify-content-between align-items-center mb-4"
         >
             <h3 class="text-primary mb-0">
-                📋 Reservation #<?= h(
-                    $reservationIdString
-                ) ?>
+                📋 Reservation #<?= h($reservationIdString) ?>
             </h3>
 
             <a
@@ -522,20 +485,13 @@ if ($status === 'Pending') {
                 <div
                     class="d-flex justify-content-between align-items-center mb-3"
                 >
-                    <h5 class="mb-0">
-                        Current Status
-                    </h5>
-
+                    <h5 class="mb-0">Current Status</h5>
                     <?= reservationBadge($status) ?>
                 </div>
 
-                <div
-                    class="status-message <?= $statusClass ?>"
-                >
+                <div class="status-message <?= h($statusClass) ?>">
                     <strong>
-                        <?= h(
-                            getStatusMessage($status)
-                        ) ?>
+                        <?= h(getStatusMessage($status)) ?>
                     </strong>
                 </div>
             </div>
@@ -549,9 +505,7 @@ if ($status === 'Pending') {
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <div
-                            class="schedule-card dropoff"
-                        >
+                        <div class="schedule-card dropoff">
                             <label
                                 class="fw-bold text-primary small text-uppercase"
                             >
@@ -577,9 +531,7 @@ if ($status === 'Pending') {
                     </div>
 
                     <div class="col-md-6">
-                        <div
-                            class="schedule-card pickup"
-                        >
+                        <div class="schedule-card pickup">
                             <label
                                 class="fw-bold text-warning small text-uppercase"
                             >
@@ -609,21 +561,16 @@ if ($status === 'Pending') {
 
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white">
-                <h5 class="mb-0">
-                    Reservation Details
-                </h5>
+                <h5 class="mb-0">Reservation Details</h5>
             </div>
 
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
                         <div class="detail-card">
-                            <label
-                                class="fw-bold text-muted small"
-                            >
+                            <label class="fw-bold text-muted small">
                                 Service Type
                             </label>
-
                             <p class="mb-0">
                                 <?= h(
                                     $reservation[
@@ -636,12 +583,9 @@ if ($status === 'Pending') {
 
                     <div class="col-md-6">
                         <div class="detail-card">
-                            <label
-                                class="fw-bold text-muted small"
-                            >
+                            <label class="fw-bold text-muted small">
                                 Service
                             </label>
-
                             <p class="mb-0">
                                 <?= h(
                                     $reservation[
@@ -656,18 +600,14 @@ if ($status === 'Pending') {
                 <div class="row">
                     <div class="col-md-6">
                         <div class="detail-card">
-                            <label
-                                class="fw-bold text-muted small"
-                            >
+                            <label class="fw-bold text-muted small">
                                 Estimated Weight
                             </label>
-
                             <p class="mb-0">
                                 <?php
-                                $weight =
-                                    $reservation[
-                                        'weight_kg'
-                                    ] ?? null;
+                                $weight = $reservation[
+                                    'weight_kg'
+                                ] ?? null;
 
                                 echo $weight === null
                                     ? '—'
@@ -679,12 +619,9 @@ if ($status === 'Pending') {
 
                     <div class="col-md-6">
                         <div class="detail-card">
-                            <label
-                                class="fw-bold text-muted small"
-                            >
+                            <label class="fw-bold text-muted small">
                                 Notes
                             </label>
-
                             <p class="mb-0">
                                 <?= nl2br(
                                     h(
@@ -701,42 +638,26 @@ if ($status === 'Pending') {
 
         <?php if (
             $status === 'Rescheduled' &&
-            !empty(
-                $reservation['requested_date']
-                ?? null
-            ) &&
-            !empty(
-                $reservation['requested_time']
-                ?? null
-            )
+            !empty($reservation['requested_date'] ?? null) &&
+            !empty($reservation['requested_time'] ?? null)
         ): ?>
-            <div
-                class="card shadow-sm mb-4 border-success"
-            >
-                <div
-                    class="card-header bg-success text-white"
-                >
-                    <h5 class="mb-0">
-                        New Scheduled Drop-Off
-                    </h5>
+            <div class="card shadow-sm mb-4 border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">New Scheduled Drop-Off</h5>
                 </div>
 
                 <div class="card-body">
                     <p class="mb-1">
                         <strong>Date:</strong>
                         <?= formatDateValue(
-                            $reservation[
-                                'requested_date'
-                            ]
+                            $reservation['requested_date']
                         ) ?>
                     </p>
 
                     <p class="mb-0">
                         <strong>Time:</strong>
                         <?= formatTimeValue(
-                            $reservation[
-                                'requested_time'
-                            ]
+                            $reservation['requested_time']
                         ) ?>
                     </p>
                 </div>
@@ -746,9 +667,7 @@ if ($status === 'Pending') {
         <?php if ($status === 'No-Show'): ?>
             <div class="card shadow-sm mb-4">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">
-                        Request Reschedule
-                    </h5>
+                    <h5 class="mb-0">Request Reschedule</h5>
                 </div>
 
                 <div class="card-body">
@@ -761,9 +680,7 @@ if ($status === 'Pending') {
                         <input
                             type="hidden"
                             name="reservation_id"
-                            value="<?= h(
-                                $reservationIdString
-                            ) ?>"
+                            value="<?= h($reservationIdString) ?>"
                         >
 
                         <input
@@ -786,9 +703,7 @@ if ($status === 'Pending') {
                                     name="new_date"
                                     id="newDate"
                                     class="form-control"
-                                    min="<?= date(
-                                        'Y-m-d'
-                                    ) ?>"
+                                    min="<?= date('Y-m-d') ?>"
                                     required
                                 >
                             </div>
@@ -812,8 +727,7 @@ if ($status === 'Pending') {
                         </div>
 
                         <p class="text-muted small">
-                            Your admin will review and approve the
-                            new schedule.
+                            Your admin will review and approve the new schedule.
                         </p>
 
                         <button
@@ -843,5 +757,16 @@ if ($status === 'Pending') {
             </a>
         </div>
     </div>
+
+    <script>
+    function goBack() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+
+        window.location.href = '../index.php';
+    }
+    </script>
 </body>
 </html>
