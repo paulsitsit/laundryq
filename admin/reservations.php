@@ -1,5 +1,6 @@
 <?php
 // File: laundryq/admin/reservations.php
+// Full file with Accept Reschedule and Reject Reschedule removed.
 
 declare(strict_types=1);
 
@@ -589,12 +590,6 @@ try {
                                         </option>
                                         <option value="complete">
                                             Complete
-                                        </option>
-                                        <option value="accept_reschedule">
-                                            Accept Reschedule
-                                        </option>
-                                        <option value="reject_reschedule">
-                                            Reject Reschedule
                                         </option>
                                         <option value="cancel">
                                             Cancel
