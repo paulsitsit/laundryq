@@ -56,14 +56,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $service = $db->services->findOne([
                 '_id' => new ObjectId($serviceId),
                 '$or' => [
-                    [
-                        'is_active' => true
-                    ],
-                    [
-                        'is_active' => [
-                            '$exists' => false
-                        ]
-                    ]
+                    ['is_active' => true],
+                    ['is_active' => ['$exists' => false]]
                 ]
             ]);
 
@@ -123,8 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             error_log(
-                'Order creation error: ' .
-                $e->getMessage()
+                'Order creation error: ' . $e->getMessage()
             );
 
             $message = "
@@ -204,10 +197,7 @@ try {
                     was <strong>accepted</strong>.
                 </div>
             ";
-        } elseif (
-            $status === 'Declined' ||
-            $status === 'Rejected'
-        ) {
+        } elseif ($status === 'Declined' || $status === 'Rejected') {
             $notifHtml .= "
                 <div class='alert alert-danger'>
                     ❌ Your reservation for
@@ -218,8 +208,7 @@ try {
         } elseif ($status === 'Ready for Pick-Up') {
             $notifHtml .= "
                 <div class='alert alert-info'>
-                    📦 Your laundry is
-                    <strong>ready for pick-up</strong>.
+                    📦 Your laundry is <strong>ready for pick-up</strong>.
                 </div>
             ";
         } elseif ($status === 'No-Show') {
@@ -234,9 +223,7 @@ try {
     if (!empty($reservationIdsToMark)) {
         $db->reservations->updateMany(
             [
-                '_id' => [
-                    '$in' => $reservationIdsToMark
-                ],
+                '_id' => ['$in' => $reservationIdsToMark],
                 'user_id' => $userId,
                 'notified' => false
             ],
@@ -250,8 +237,7 @@ try {
     }
 } catch (Throwable $e) {
     error_log(
-        'Reservation notification error: ' .
-        $e->getMessage()
+        'Reservation notification error: ' . $e->getMessage()
     );
 }
 
@@ -261,10 +247,7 @@ try {
             'user_id' => $userId,
             'notified' => false,
             'service_change_result' => [
-                '$in' => [
-                    'approved',
-                    'declined'
-                ]
+                '$in' => ['approved', 'declined']
             ]
         ],
         [
@@ -308,9 +291,7 @@ try {
     if (!empty($orderIdsToMark)) {
         $db->orders->updateMany(
             [
-                '_id' => [
-                    '$in' => $orderIdsToMark
-                ],
+                '_id' => ['$in' => $orderIdsToMark],
                 'user_id' => $userId,
                 'notified' => false
             ],
@@ -324,22 +305,15 @@ try {
     }
 } catch (Throwable $e) {
     error_log(
-        'Order notification error: ' .
-        $e->getMessage()
+        'Order notification error: ' . $e->getMessage()
     );
 }
 
 $services = $db->services->find(
     [
         '$or' => [
-            [
-                'is_active' => true
-            ],
-            [
-                'is_active' => [
-                    '$exists' => false
-                ]
-            ]
+            ['is_active' => true],
+            ['is_active' => ['$exists' => false]]
         ]
     ],
     [
@@ -367,20 +341,21 @@ $services = $db->services->find(
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <div class="d-flex align-items-center gap-2 mb-3">
-                    <a
-                        href="../index.php"
-                        class="btn btn-outline-primary btn-sm"
-                    >
-                        Home
-                    </a>
+                <div class="mb-3">
                     <button
                         type="button"
-                        class="btn btn-outline-secondary btn-sm"
+                        class="btn btn-link p-0 me-2"
                         onclick="goBack()"
                     >
                         ← Back
                     </button>
+
+                    <a
+                        href="../index.php"
+                        class="text-decoration-none"
+                    >
+                        Home
+                    </a>
                 </div>
 
                 <div
@@ -389,6 +364,7 @@ $services = $db->services->find(
                     <h3 class="text-primary mb-0">
                         🧺 Place a Laundry Order
                     </h3>
+
                     <a
                         href="logout.php"
                         class="btn btn-outline-secondary btn-sm"
@@ -436,6 +412,7 @@ $services = $db->services->find(
                                 >
                                     <?php
                                     $serviceCount = 0;
+
                                     foreach ($services as $service):
                                         $serviceCount++;
                                         $serviceIdValue = (string) (
@@ -497,6 +474,7 @@ $services = $db->services->find(
                                 >
                                     Weight (kg)
                                 </label>
+
                                 <input
                                     type="number"
                                     name="weight_kg"
@@ -506,6 +484,7 @@ $services = $db->services->find(
                                     step="0.1"
                                     required
                                 >
+
                                 <small
                                     id="weightHint"
                                     class="text-muted"
@@ -579,6 +558,7 @@ $services = $db->services->find(
                 estimate.innerHTML =
                     'Estimated Total: <strong>₱0.00</strong>';
             }
+
             return;
         }
 
@@ -590,6 +570,7 @@ $services = $db->services->find(
         const weight = parseFloat(weightInput.value || '0');
 
         weightInput.min = min;
+
         hint.textContent =
             `Minimum ${min}kg. Flat ₱${base.toFixed(2)} ` +
             `covers up to ${max}kg, then ` +
