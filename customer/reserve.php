@@ -782,21 +782,6 @@ $serviceCount = count($services);
                     </div>
                 </div>
 
-                <?php if (!empty($holidayDates)): ?>
-                    <div class="card shadow-sm mt-3">
-                        <div class="card-header bg-white">
-                            <strong>
-                                📌 Shop Closed on These Dates
-                            </strong>
-                        </div>
-
-                        <div class="card-body">
-                            <ul class="mb-0 small">
-                                <?= $holidayListHtml ?>
-                            </ul>
-                        </div>
-                    </div>
-                <?php endif; ?>
 
                 <p class="text-center mt-3">
                     <a href="my_reservations.php">
