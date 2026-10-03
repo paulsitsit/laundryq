@@ -163,49 +163,91 @@ function sortLink(
         '</a>';
 }
 
-function allowedActionsForStatus(string $status): array
+/*
+|--------------------------------------------------------------------------
+| Reservation Actions
+|--------------------------------------------------------------------------
+|
+| Every action remains visible in the dropdown. The enabled value is
+| true only for valid forward workflow actions.
+|
+| Workflow:
+| Pending → Accepted → Arrived → Washing → Drying → Folding
+| → Ready for Pick-Up → Picked Up → Completed
+|
+*/
+
+function allActionsForStatus(string $status): array
 {
-    $actions = [
+    $allActions = [
+        'accept_pending' => 'Accept',
+        'reject_pending' => 'Reject',
+        'mark_arrived' => 'Arrived',
+        'mark_no_show' => 'No-Show',
+        'start_washing' => 'Start Washing',
+        'start_drying' => 'Start Drying',
+        'start_folding' => 'Start Folding',
+        'mark_ready_pickup' => 'Ready for Pick-Up',
+        'mark_picked_up' => 'Picked Up',
+        'complete' => 'Complete',
+        'cancel' => 'Cancel'
+    ];
+
+    $enabledActions = [
         'Pending' => [
-            'accept_pending' => 'Accept',
-            'reject_pending' => 'Reject',
-            'cancel' => 'Cancel'
+            'accept_pending',
+            'reject_pending',
+            'cancel'
         ],
         'Accepted' => [
-            'mark_arrived' => 'Arrived',
-            'mark_no_show' => 'No-Show',
-            'cancel' => 'Cancel'
+            'mark_arrived',
+            'mark_no_show',
+            'cancel'
         ],
         'Rescheduled' => [
-            'mark_arrived' => 'Arrived',
-            'mark_no_show' => 'No-Show',
-            'cancel' => 'Cancel'
+            'mark_arrived',
+            'mark_no_show',
+            'cancel'
         ],
         'Arrived' => [
-            'start_washing' => 'Start Washing',
-            'cancel' => 'Cancel'
+            'start_washing',
+            'cancel'
         ],
         'Washing' => [
-            'start_drying' => 'Start Drying',
-            'cancel' => 'Cancel'
+            'start_drying',
+            'cancel'
         ],
         'Drying' => [
-            'start_folding' => 'Start Folding',
-            'cancel' => 'Cancel'
+            'start_folding',
+            'cancel'
         ],
         'Folding' => [
-            'mark_ready_pickup' => 'Ready for Pick-Up',
-            'cancel' => 'Cancel'
+            'mark_ready_pickup',
+            'cancel'
         ],
         'Ready for Pick-Up' => [
-            'mark_picked_up' => 'Picked Up'
+            'mark_picked_up'
         ],
         'Picked Up' => [
-            'complete' => 'Complete'
+            'complete'
         ]
     ];
 
-    return $actions[$status] ?? [];
+    $enabled = $enabledActions[$status] ?? [];
+    $result = [];
+
+    foreach ($allActions as $value => $label) {
+        $result[$value] = [
+            'label' => $label,
+            'enabled' => in_array(
+                $value,
+                $enabled,
+                true
+            )
+        ];
+    }
+
+    return $result;
 }
 
 $statuses = [
@@ -290,16 +332,32 @@ $reservations = [];
 $loadError = '';
 
 /*
- * Default view hides completed reservations.
- * Completed records appear only when the status filter is Completed.
- */
+|--------------------------------------------------------------------------
+| MongoDB Filter
+|--------------------------------------------------------------------------
+|
+| Default dashboard mode:
+| Show only active or unfinished reservations.
+|
+| Hidden by default:
+| - Completed
+| - Cancelled
+|
+| They can still be viewed by selecting their specific status from the
+| status filter.
+|
+*/
+
 $mongoFilter = [];
 
 if ($statusFilter !== '') {
     $mongoFilter['status'] = $statusFilter;
 } else {
     $mongoFilter['status'] = [
-        '$ne' => 'Completed'
+        '$nin' => [
+            'Completed',
+            'Cancelled'
+        ]
     ];
 }
 
@@ -443,12 +501,16 @@ try {
             display: flex;
             gap: .5rem;
             align-items: center;
-            min-width: 240px;
+            min-width: 280px;
+        }
+
+        .action-form select option:disabled {
+            color: #6c757d;
         }
 
         @media (max-width: 992px) {
             .action-form {
-                min-width: 220px;
+                min-width: 235px;
             }
         }
     </style>
@@ -511,10 +573,15 @@ try {
         >
             <div>
                 <h5 class="mb-0">Reservations</h5>
+
                 <small class="text-muted">
-                    <?= $statusFilter === ''
-                        ? 'Completed reservations are hidden by default.'
-                        : 'Showing status: ' . h($statusFilter) ?>
+                    <?php if ($statusFilter === ''): ?>
+                        Showing active/uncompleted reservations.
+                        Completed and cancelled records are hidden.
+                    <?php else: ?>
+                        Showing reservations with status:
+                        <?= h($statusFilter) ?>
+                    <?php endif; ?>
                 </small>
             </div>
 
@@ -531,7 +598,7 @@ try {
 
         <div class="card-body border-bottom">
             <form method="GET" class="row g-2 align-items-end">
-                <div class="col-sm-5 col-md-4">
+                <div class="col-sm-6 col-md-4">
                     <label
                         for="statusFilter"
                         class="form-label small mb-1"
@@ -607,6 +674,7 @@ try {
                                 $statusFilter
                             ) ?>
                         </th>
+
                         <th>
                             <?= sortLink(
                                 'customer',
@@ -616,8 +684,10 @@ try {
                                 $statusFilter
                             ) ?>
                         </th>
+
                         <th>Service</th>
                         <th>Est. Wt</th>
+
                         <th>
                             <?= sortLink(
                                 'date',
@@ -627,7 +697,9 @@ try {
                                 $statusFilter
                             ) ?>
                         </th>
+
                         <th>Pick-Up</th>
+
                         <th>
                             <?= sortLink(
                                 'status',
@@ -637,6 +709,7 @@ try {
                                 $statusFilter
                             ) ?>
                         </th>
+
                         <th>Actions</th>
                     </tr>
                     </thead>
@@ -661,7 +734,7 @@ try {
                             $reservation['status'] ?? 'Pending'
                         );
 
-                        $actions = allowedActionsForStatus($status);
+                        $actions = allActionsForStatus($status);
 
                         $rowClass = $status === 'Pending'
                             ? 'table-warning'
@@ -741,53 +814,55 @@ try {
                             </td>
 
                             <td>
-                                <?php if ($actions !== []): ?>
-                                    <form
-                                        method="POST"
-                                        action="handle_reservation_action.php"
-                                        class="action-form"
+                                <form
+                                    method="POST"
+                                    action="handle_reservation_action.php"
+                                    class="action-form"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="reservation_id"
+                                        value="<?= h($id) ?>"
                                     >
-                                        <input
-                                            type="hidden"
-                                            name="reservation_id"
-                                            value="<?= h($id) ?>"
-                                        >
 
-                                        <select
-                                            name="action"
-                                            class="form-select form-select-sm"
-                                            required
-                                        >
-                                            <option value="">
-                                                Select next action
+                                    <select
+                                        name="action"
+                                        class="form-select form-select-sm"
+                                        required
+                                    >
+                                        <option value="">
+                                            Select action
+                                        </option>
+
+                                        <?php foreach (
+                                            $actions as
+                                            $actionValue => $actionInfo
+                                        ): ?>
+                                            <option
+                                                value="<?= h(
+                                                    $actionValue
+                                                ) ?>"
+                                                <?= !$actionInfo['enabled']
+                                                    ? 'disabled'
+                                                    : '' ?>
+                                            >
+                                                <?= h(
+                                                    $actionInfo['label']
+                                                ) ?>
+                                                <?= !$actionInfo['enabled']
+                                                    ? ' — Unavailable'
+                                                    : '' ?>
                                             </option>
+                                        <?php endforeach; ?>
+                                    </select>
 
-                                            <?php foreach (
-                                                $actions as
-                                                $actionValue => $actionLabel
-                                            ): ?>
-                                                <option
-                                                    value="<?= h(
-                                                        $actionValue
-                                                    ) ?>"
-                                                >
-                                                    <?= h($actionLabel) ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-
-                                        <button
-                                            type="submit"
-                                            class="btn btn-primary btn-sm"
-                                        >
-                                            Update
-                                        </button>
-                                    </form>
-                                <?php else: ?>
-                                    <span class="text-muted small">
-                                        No further action
-                                    </span>
-                                <?php endif; ?>
+                                    <button
+                                        type="submit"
+                                        class="btn btn-primary btn-sm"
+                                    >
+                                        Update
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                     <?php endforeach; ?>
