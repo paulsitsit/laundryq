@@ -58,27 +58,30 @@ function isValidTimeValue(string $time): bool
     ) === 1;
 }
 
+function asArray(mixed $document): ?array
+{
+    if ($document === null) {
+        return null;
+    }
+
+    if (is_array($document)) {
+        return $document;
+    }
+
+    if (method_exists($document, 'getArrayCopy')) {
+        return $document->getArrayCopy();
+    }
+
+    return null;
+}
+
 function holidayName(mixed $holiday): string
 {
-    if ($holiday === null) {
-        return 'Holiday';
-    }
+    $data = asArray($holiday);
 
-    if (is_array($holiday)) {
-        return (string) (
-            $holiday['holiday_name'] ?? 'Holiday'
-        );
-    }
-
-    if (method_exists($holiday, 'getArrayCopy')) {
-        $data = $holiday->getArrayCopy();
-
-        return (string) (
-            $data['holiday_name'] ?? 'Holiday'
-        );
-    }
-
-    return 'Holiday';
+    return (string) (
+        $data['holiday_name'] ?? 'Holiday'
+    );
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -168,19 +171,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ";
     } else {
         try {
-            $reservationHoliday = $db->holidays->findOne([
-                'holiday_date' => $date,
-                'is_closed' => [
-                    '$ne' => false
-                ]
-            ]);
+            $reservationHoliday = asArray(
+                $db->holidays->findOne([
+                    'holiday_date' => $date,
+                    'is_closed' => [
+                        '$ne' => false
+                    ]
+                ])
+            );
 
-            $pickupHoliday = $db->holidays->findOne([
-                'holiday_date' => $pickupDate,
-                'is_closed' => [
-                    '$ne' => false
-                ]
-            ]);
+            $pickupHoliday = asArray(
+                $db->holidays->findOne([
+                    'holiday_date' => $pickupDate,
+                    'is_closed' => [
+                        '$ne' => false
+                    ]
+                ])
+            );
 
             if ($reservationHoliday !== null) {
                 $message = "
@@ -203,12 +210,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 ";
             } else {
-                $service = $db->services->findOne([
-                    '_id' => new ObjectId($serviceId),
-                    'is_active' => [
-                        '$ne' => false
-                    ]
-                ]);
+                $service = asArray(
+                    $db->services->findOne([
+                        '_id' => new ObjectId($serviceId),
+                        'is_active' => [
+                            '$ne' => false
+                        ]
+                    ])
+                );
 
                 if ($service === null) {
                     $message = "
@@ -221,26 +230,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $service['min_kg'] ?? 0
                     );
 
-                    $maximumKg = (float) (
-                        $service['max_kg'] ?? 0
-                    );
-
                     if ($weightKg < $minimumKg) {
                         $message = "
                             <div class='alert alert-danger'>
                                 Minimum estimated weight for this service is " .
                                 h($minimumKg) .
-                                " kg.
-                            </div>
-                        ";
-                    } elseif (
-                        $maximumKg > 0 &&
-                        $weightKg > $maximumKg
-                    ) {
-                        $message = "
-                            <div class='alert alert-danger'>
-                                Maximum estimated weight for this service is " .
-                                h($maximumKg) .
                                 " kg.
                             </div>
                         ";
@@ -342,14 +336,24 @@ try {
         ]
     );
 
-    foreach ($holidays as $holiday) {
-        $holidayDate = (string) (
-            $holiday['holiday_date'] ?? ''
-        );
+    foreach ($holidays as $document) {
+        $holiday = asArray($document);
 
-        $holidayNameValue = (string) (
+        if ($holiday === null) {
+            continue;
+        }
+
+        $holidayDate = trim((string) (
+            $holiday['holiday_date'] ?? ''
+        ));
+
+        $holidayNameValue = trim((string) (
             $holiday['holiday_name'] ?? 'Holiday'
-        );
+        ));
+
+        $holidayType = trim((string) (
+            $holiday['holiday_type'] ?? ''
+        ));
 
         if (
             $holidayDate === '' ||
@@ -359,12 +363,19 @@ try {
         }
 
         $holidayDates[] = $holidayDate;
-        $holidayNames[$holidayDate] = $holidayNameValue;
+
+        $holidayNames[$holidayDate] =
+            $holidayType !== ''
+                ? $holidayNameValue .
+                    ' (' .
+                    $holidayType .
+                    ')'
+                : $holidayNameValue;
 
         $holidayListHtml .= '<li>' .
             h(date('F j, Y', strtotime($holidayDate))) .
             ' — ' .
-            h($holidayNameValue) .
+            h($holidayNames[$holidayDate]) .
             '</li>';
     }
 } catch (Throwable $e) {
@@ -382,7 +393,7 @@ try {
 }
 
 $holidayDatesJson = json_encode(
-    $holidayDates,
+    array_values(array_unique($holidayDates)),
     JSON_HEX_TAG |
     JSON_HEX_APOS |
     JSON_HEX_QUOT |
@@ -423,6 +434,46 @@ $serviceCount = count($services);
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
+
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    >
+
+    <style>
+        .flatpickr-day.holiday-date,
+        .flatpickr-day.holiday-date:hover {
+            background: #f8d7da;
+            border-color: #f5c2c7;
+            color: #842029;
+            cursor: not-allowed;
+            text-decoration: line-through;
+        }
+
+        .flatpickr-day.holiday-date.flatpickr-disabled {
+            color: #842029;
+            opacity: .85;
+        }
+
+        .holiday-info {
+            display: none;
+            margin-top: .5rem;
+            padding: .75rem;
+            border: 1px solid #f5c2c7;
+            border-radius: .375rem;
+            background: #f8d7da;
+            color: #842029;
+            font-size: .875rem;
+        }
+
+        .holiday-info.show {
+            display: block;
+        }
+
+        .flatpickr-day[title] {
+            position: relative;
+        }
+    </style>
 </head>
 <body class="bg-light">
     <div class="container py-5">
@@ -518,29 +569,31 @@ $serviceCount = count($services);
 
                                     <?php foreach ($services as $row): ?>
                                         <?php
+                                        $service = asArray($row) ?? [];
+
                                         $serviceObjectId = (string) (
-                                            $row['_id'] ?? ''
+                                            $service['_id'] ?? ''
                                         );
 
                                         $serviceName = (string) (
-                                            $row['service_name'] ??
+                                            $service['service_name'] ??
                                             'Unnamed service'
                                         );
 
                                         $basePrice = (float) (
-                                            $row['base_price'] ?? 0
+                                            $service['base_price'] ?? 0
                                         );
 
                                         $extraPerKg = (float) (
-                                            $row['extra_per_kg'] ?? 0
+                                            $service['extra_per_kg'] ?? 0
                                         );
 
                                         $minKg = (float) (
-                                            $row['min_kg'] ?? 0
+                                            $service['min_kg'] ?? 0
                                         );
 
                                         $maxKg = (float) (
-                                            $row['max_kg'] ?? 0
+                                            $service['max_kg'] ?? 0
                                         );
                                         ?>
 
@@ -625,18 +678,19 @@ $serviceCount = count($services);
                                 </label>
 
                                 <input
-                                    type="date"
+                                    type="text"
                                     name="reservation_date"
                                     id="dateInput"
                                     class="form-control"
-                                    min="<?= h($today) ?>"
+                                    placeholder="Select a drop-off date"
+                                    autocomplete="off"
                                     required
                                 >
 
-                                <small
+                                <div
                                     id="holidayWarning"
-                                    class="text-danger d-none"
-                                ></small>
+                                    class="holiday-info"
+                                ></div>
                             </div>
 
                             <div class="mb-3">
@@ -665,18 +719,19 @@ $serviceCount = count($services);
                                 </label>
 
                                 <input
-                                    type="date"
+                                    type="text"
                                     name="pickup_date"
                                     id="pickupDateInput"
                                     class="form-control"
-                                    min="<?= h($today) ?>"
+                                    placeholder="Select a pick-up date"
+                                    autocomplete="off"
                                     required
                                 >
 
-                                <small
+                                <div
                                     id="pickupHolidayWarning"
-                                    class="text-danger d-none"
-                                ></small>
+                                    class="holiday-info"
+                                ></div>
                             </div>
 
                             <div class="mb-3">
@@ -752,6 +807,10 @@ $serviceCount = count($services);
         </div>
     </div>
 
+    <script
+        src="https://cdn.jsdelivr.net/npm/flatpickr"
+    ></script>
+
     <script>
     function goBack() {
         if (window.history.length > 1) {
@@ -766,6 +825,7 @@ $serviceCount = count($services);
     const holidayNames = <?= $holidayNamesJson ?>;
 
     const dateInput = document.getElementById('dateInput');
+
     const pickupDateInput = document.getElementById(
         'pickupDateInput'
     );
@@ -779,13 +839,44 @@ $serviceCount = count($services);
     );
 
     const submitBtn = document.getElementById('submitBtn');
-    const serviceSelect = document.getElementById('serviceSelect');
-    const weightInput = document.getElementById('weightInput');
-    const weightHint = document.getElementById('weightHint');
-    const priceEstimate = document.getElementById('priceEstimate');
+
+    const serviceSelect = document.getElementById(
+        'serviceSelect'
+    );
+
+    const weightInput = document.getElementById(
+        'weightInput'
+    );
+
+    const weightHint = document.getElementById(
+        'weightHint'
+    );
+
+    const priceEstimate = document.getElementById(
+        'priceEstimate'
+    );
 
     function isHoliday(dateValue) {
         return holidayDates.includes(dateValue);
+    }
+
+    function showHolidayWarning(element, dateValue) {
+        if (dateValue !== '' && isHoliday(dateValue)) {
+            const name =
+                holidayNames[dateValue] || 'Holiday';
+
+            element.textContent =
+                '⚠️ ' +
+                name +
+                ' — the shop is closed on this date. ' +
+                'Please choose another date.';
+
+            element.classList.add('show');
+            return;
+        }
+
+        element.textContent = '';
+        element.classList.remove('show');
     }
 
     function updateSubmitButton() {
@@ -806,70 +897,17 @@ $serviceCount = count($services);
             pickupDateIsHoliday;
     }
 
-    function checkReservationHoliday() {
-        const selectedDate = dateInput.value;
-
-        if (selectedDate !== '' && isHoliday(selectedDate)) {
-            const name =
-                holidayNames[selectedDate] || 'Holiday';
-
-            holidayWarning.textContent =
-                '⚠️ The shop is closed on this date (' +
-                name +
-                '). Please choose another date.';
-
-            holidayWarning.classList.remove('d-none');
-        } else {
-            holidayWarning.textContent = '';
-            holidayWarning.classList.add('d-none');
-        }
-
-        updateSubmitButton();
-    }
-
-    function checkPickupHoliday() {
-        const selectedDate = pickupDateInput.value;
-
-        if (selectedDate !== '' && isHoliday(selectedDate)) {
-            const name =
-                holidayNames[selectedDate] || 'Holiday';
-
-            pickupHolidayWarning.textContent =
-                '⚠️ The shop is closed on this date (' +
-                name +
-                '). Please choose another pick-up date.';
-
-            pickupHolidayWarning.classList.remove('d-none');
-        } else {
-            pickupHolidayWarning.textContent = '';
-            pickupHolidayWarning.classList.add('d-none');
-        }
-
-        updateSubmitButton();
-    }
-
-    function syncPickupDate() {
-        if (
-            pickupDateInput.value !== '' &&
-            dateInput.value !== '' &&
-            pickupDateInput.value < dateInput.value
-        ) {
-            pickupDateInput.value = dateInput.value;
-        }
-
-        pickupDateInput.min = dateInput.value || '<?= h($today) ?>';
-
-        checkPickupHoliday();
-    }
-
     function updateEstimate() {
         if (
+            !serviceSelect ||
             serviceSelect.value === '' ||
             serviceSelect.selectedIndex < 0
         ) {
             weightHint.textContent = '';
+
             priceEstimate.innerHTML =
                 'Estimated Total: <strong>₱0.00</strong>';
+
             updateSubmitButton();
             return;
         }
@@ -901,11 +939,11 @@ $serviceCount = count($services);
 
         weightInput.min = min > 0 ? min : 0.1;
 
-        if (max > 0) {
-            weightInput.max = max;
-        } else {
-            weightInput.removeAttribute('max');
-        }
+        /*
+         * max_kg is the limit covered by the base price.
+         * It is not a maximum allowed reservation weight.
+         */
+        weightInput.removeAttribute('max');
 
         let hintText =
             'Minimum ' +
@@ -925,44 +963,152 @@ $serviceCount = count($services);
         weightHint.textContent = hintText;
 
         if (
-            !Number.isNaN(weight) &&
-            weight >= min &&
-            (max <= 0 || weight <= max)
+            Number.isNaN(weight) ||
+            weight <= 0 ||
+            weight < min
         ) {
-            let total = base;
-
-            if (max > 0 && weight > max) {
-                total += (weight - max) * extra;
-            }
-
-            priceEstimate.innerHTML =
-                'Estimated Total: <strong>₱' +
-                total.toFixed(2) +
-                '</strong>';
-        } else {
             priceEstimate.innerHTML =
                 'Estimated Total: <strong>₱0.00</strong>';
+
+            updateSubmitButton();
+            return;
         }
+
+        let total = base;
+
+        if (max > 0 && weight > max) {
+            total += (weight - max) * extra;
+        }
+
+        priceEstimate.innerHTML =
+            'Estimated Total: <strong>₱' +
+            total.toFixed(2) +
+            '</strong>';
 
         updateSubmitButton();
     }
 
-    dateInput.addEventListener('change', function () {
-        checkReservationHoliday();
-        syncPickupDate();
-    });
+    function toYmd(date) {
+        const year = date.getFullYear();
 
-    pickupDateInput.addEventListener('change', function () {
-        syncPickupDate();
-        checkPickupHoliday();
-    });
+        const month = String(
+            date.getMonth() + 1
+        ).padStart(2, '0');
 
-    serviceSelect.addEventListener('change', updateEstimate);
-    weightInput.addEventListener('input', updateEstimate);
+        const day = String(
+            date.getDate()
+        ).padStart(2, '0');
+
+        return year + '-' + month + '-' + day;
+    }
+
+    const calendarSettings = {
+        dateFormat: 'Y-m-d',
+        minDate: '<?= h($today) ?>',
+        disable: holidayDates,
+
+        onDayCreate: function (
+            _dateObject,
+            _dateString,
+            _instance,
+            dayElement
+        ) {
+            const calendarDate = toYmd(
+                dayElement.dateObj
+            );
+
+            if (isHoliday(calendarDate)) {
+                const name =
+                    holidayNames[calendarDate] ||
+                    'Holiday';
+
+                dayElement.classList.add(
+                    'holiday-date'
+                );
+
+                dayElement.title =
+                    name + ' — Shop closed';
+
+                dayElement.setAttribute(
+                    'aria-label',
+                    name + '. Shop closed.'
+                );
+            }
+        }
+    };
+
+    const pickupPicker = flatpickr(
+        pickupDateInput,
+        {
+            ...calendarSettings,
+
+            onChange: function (
+                _selectedDates,
+                dateString
+            ) {
+                showHolidayWarning(
+                    pickupHolidayWarning,
+                    dateString
+                );
+
+                updateSubmitButton();
+            }
+        }
+    );
+
+    const dropoffPicker = flatpickr(
+        dateInput,
+        {
+            ...calendarSettings,
+
+            onChange: function (
+                _selectedDates,
+                dateString
+            ) {
+                showHolidayWarning(
+                    holidayWarning,
+                    dateString
+                );
+
+                if (dateString !== '') {
+                    pickupPicker.set(
+                        'minDate',
+                        dateString
+                    );
+
+                    if (
+                        pickupDateInput.value !== '' &&
+                        pickupDateInput.value < dateString
+                    ) {
+                        pickupPicker.setDate(
+                            dateString,
+                            true
+                        );
+                    }
+                }
+
+                showHolidayWarning(
+                    pickupHolidayWarning,
+                    pickupDateInput.value
+                );
+
+                updateSubmitButton();
+            }
+        }
+    );
+
+    serviceSelect.addEventListener(
+        'change',
+        updateEstimate
+    );
+
+    weightInput.addEventListener(
+        'input',
+        updateEstimate
+    );
 
     updateEstimate();
-    checkReservationHoliday();
-    checkPickupHoliday();
+    updateSubmitButton();
     </script>
 </body>
 </html>
