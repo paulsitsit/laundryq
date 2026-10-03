@@ -628,6 +628,13 @@ for ($index = 0; $index < 7; $index++) {
             >
                 📅 Reservations
             </a>
+
+            <a
+                href="reviews.php"
+                class="btn btn-outline-warning btn-sm"
+            >
+                ⭐ Reviews
+            </a>
         </div>
 
         <div>
