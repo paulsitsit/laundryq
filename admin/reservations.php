@@ -1,10 +1,10 @@
 <?php
 // File: laundryq/admin/reservations.php
-// Full file with Accept Reschedule and Reject Reschedule removed.
 
 declare(strict_types=1);
 
 session_start();
+
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
@@ -133,7 +133,8 @@ function sortLink(
     string $column,
     string $label,
     string $sort,
-    string $order
+    string $order,
+    string $statusFilter
 ): string {
     $nextOrder =
         $sort === $column && $order === 'asc'
@@ -146,17 +147,99 @@ function sortLink(
         $arrow = $order === 'asc' ? ' ▲' : ' ▼';
     }
 
-    return '<a class="text-decoration-none text-reset" href="?sort=' .
-        urlencode($column) .
-        '&order=' .
-        urlencode($nextOrder) .
+    $query = [
+        'sort' => $column,
+        'order' => $nextOrder
+    ];
+
+    if ($statusFilter !== '') {
+        $query['status'] = $statusFilter;
+    }
+
+    return '<a class="text-decoration-none text-reset" href="?' .
+        http_build_query($query) .
         '">' .
         h($label . $arrow) .
         '</a>';
 }
 
-$sort = $_GET['sort'] ?? 'latest';
-$order = $_GET['order'] ?? 'desc';
+function allowedActionsForStatus(string $status): array
+{
+    $actions = [
+        'Pending' => [
+            'accept_pending' => 'Accept',
+            'reject_pending' => 'Reject',
+            'cancel' => 'Cancel'
+        ],
+        'Accepted' => [
+            'mark_arrived' => 'Arrived',
+            'mark_no_show' => 'No-Show',
+            'cancel' => 'Cancel'
+        ],
+        'Rescheduled' => [
+            'mark_arrived' => 'Arrived',
+            'mark_no_show' => 'No-Show',
+            'cancel' => 'Cancel'
+        ],
+        'Arrived' => [
+            'start_washing' => 'Start Washing',
+            'cancel' => 'Cancel'
+        ],
+        'Washing' => [
+            'start_drying' => 'Start Drying',
+            'cancel' => 'Cancel'
+        ],
+        'Drying' => [
+            'start_folding' => 'Start Folding',
+            'cancel' => 'Cancel'
+        ],
+        'Folding' => [
+            'mark_ready_pickup' => 'Ready for Pick-Up',
+            'cancel' => 'Cancel'
+        ],
+        'Ready for Pick-Up' => [
+            'mark_picked_up' => 'Picked Up'
+        ],
+        'Picked Up' => [
+            'complete' => 'Complete'
+        ]
+    ];
+
+    return $actions[$status] ?? [];
+}
+
+$statuses = [
+    'Pending',
+    'Accepted',
+    'Arrived',
+    'Washing',
+    'Drying',
+    'Folding',
+    'In Progress',
+    'Ready for Pick-Up',
+    'Picked Up',
+    'Completed',
+    'No-Show',
+    'Reschedule Requested',
+    'Rescheduled',
+    'Cancelled',
+    'Rejected',
+    'Declined',
+    'Service Change Requested'
+];
+
+$sort = trim((string) (
+    $_GET['sort'] ?? 'latest'
+));
+
+$order = trim((string) (
+    $_GET['order'] ?? 'desc'
+));
+
+$statusFilter = trim((string) (
+    $_GET['status'] ?? ''
+));
+
 $allowedSorts = [
     'id',
     'customer',
@@ -172,6 +255,13 @@ if (!in_array($sort, $allowedSorts, true)) {
 
 if (!in_array($order, ['asc', 'desc'], true)) {
     $order = 'desc';
+}
+
+if (
+    $statusFilter !== '' &&
+    !in_array($statusFilter, $statuses, true)
+) {
+    $statusFilter = '';
 }
 
 $message = '';
@@ -199,8 +289,22 @@ foreach (
 $reservations = [];
 $loadError = '';
 
+/*
+ * Default view hides completed reservations.
+ * Completed records appear only when the status filter is Completed.
+ */
+$mongoFilter = [];
+
+if ($statusFilter !== '') {
+    $mongoFilter['status'] = $statusFilter;
+} else {
+    $mongoFilter['status'] = [
+        '$ne' => 'Completed'
+    ];
+}
+
 try {
-    foreach ($db->reservations->find([]) as $document) {
+    foreach ($db->reservations->find($mongoFilter) as $document) {
         $reservation = asArray($document);
 
         if ($reservation === null) {
@@ -321,21 +425,25 @@ try {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
+
     <title>Reservations - LaundryQ Admin</title>
+
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
+
     <style>
         .action-form {
             display: flex;
             gap: .5rem;
             align-items: center;
-            min-width: 260px;
+            min-width: 240px;
         }
 
         @media (max-width: 992px) {
@@ -398,10 +506,17 @@ try {
 
     <div class="card shadow-sm">
         <div
-            class="card-header bg-white d-flex
-            justify-content-between align-items-center"
+            class="card-header bg-white d-flex flex-wrap
+            justify-content-between align-items-center gap-2"
         >
-            <h5 class="mb-0">All Reservations</h5>
+            <div>
+                <h5 class="mb-0">Reservations</h5>
+                <small class="text-muted">
+                    <?= $statusFilter === ''
+                        ? 'Completed reservations are hidden by default.'
+                        : 'Showing status: ' . h($statusFilter) ?>
+                </small>
+            </div>
 
             <small class="text-muted">
                 Sorted by:
@@ -412,6 +527,68 @@ try {
                 ) ?>
                 (<?= h(strtoupper($order)) ?>)
             </small>
+        </div>
+
+        <div class="card-body border-bottom">
+            <form method="GET" class="row g-2 align-items-end">
+                <div class="col-sm-5 col-md-4">
+                    <label
+                        for="statusFilter"
+                        class="form-label small mb-1"
+                    >
+                        Filter by Status
+                    </label>
+
+                    <select
+                        name="status"
+                        id="statusFilter"
+                        class="form-select form-select-sm"
+                    >
+                        <option value="">
+                            Active / Uncompleted Reservations
+                        </option>
+
+                        <?php foreach ($statuses as $filterStatus): ?>
+                            <option
+                                value="<?= h($filterStatus) ?>"
+                                <?= $statusFilter === $filterStatus
+                                    ? 'selected'
+                                    : '' ?>
+                            >
+                                <?= h($filterStatus) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <input
+                    type="hidden"
+                    name="sort"
+                    value="<?= h($sort) ?>"
+                >
+
+                <input
+                    type="hidden"
+                    name="order"
+                    value="<?= h($order) ?>"
+                >
+
+                <div class="col-auto">
+                    <button
+                        type="submit"
+                        class="btn btn-primary btn-sm"
+                    >
+                        Filter
+                    </button>
+
+                    <a
+                        href="reservations.php"
+                        class="btn btn-outline-secondary btn-sm"
+                    >
+                        Reset
+                    </a>
+                </div>
+            </form>
         </div>
 
         <div class="card-body p-0">
@@ -426,7 +603,8 @@ try {
                                 'id',
                                 'ID',
                                 $sort,
-                                $order
+                                $order,
+                                $statusFilter
                             ) ?>
                         </th>
                         <th>
@@ -434,7 +612,8 @@ try {
                                 'customer',
                                 'Customer',
                                 $sort,
-                                $order
+                                $order,
+                                $statusFilter
                             ) ?>
                         </th>
                         <th>Service</th>
@@ -444,7 +623,8 @@ try {
                                 'date',
                                 'Drop-Off',
                                 $sort,
-                                $order
+                                $order,
+                                $statusFilter
                             ) ?>
                         </th>
                         <th>Pick-Up</th>
@@ -453,7 +633,8 @@ try {
                                 'status',
                                 'Status',
                                 $sort,
-                                $order
+                                $order,
+                                $statusFilter
                             ) ?>
                         </th>
                         <th>Actions</th>
@@ -467,7 +648,7 @@ try {
                                 colspan="8"
                                 class="text-center text-muted py-4"
                             >
-                                No reservations found.
+                                No reservations found for this filter.
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -475,9 +656,12 @@ try {
                     <?php foreach ($reservations as $reservation): ?>
                         <?php
                         $id = $reservation['reservation_id'];
+
                         $status = (string) (
                             $reservation['status'] ?? 'Pending'
                         );
+
+                        $actions = allowedActionsForStatus($status);
 
                         $rowClass = $status === 'Pending'
                             ? 'table-warning'
@@ -507,6 +691,7 @@ try {
                                     #<?= h($id) ?>
                                 </strong>
                             </td>
+
                             <td>
                                 <?= h(
                                     $reservation[
@@ -514,6 +699,7 @@ try {
                                     ] ?? null
                                 ) ?>
                             </td>
+
                             <td>
                                 <?= h(
                                     $reservation[
@@ -521,12 +707,13 @@ try {
                                     ] ?? null
                                 ) ?>
                             </td>
+
                             <td>
                                 <?= h(
-                                    $reservation['weight_kg']
-                                    ?? null
+                                    $reservation['weight_kg'] ?? null
                                 ) ?> kg
                             </td>
+
                             <td>
                                 <?= formatDateTime(
                                     $reservation[
@@ -537,6 +724,7 @@ try {
                                     ] ?? null
                                 ) ?>
                             </td>
+
                             <td>
                                 <?= formatDateTime(
                                     $reservation[
@@ -547,62 +735,59 @@ try {
                                     ] ?? null
                                 ) ?>
                             </td>
+
                             <td>
                                 <?= badge($status) ?>
                             </td>
+
                             <td>
-                                <form
-                                    method="POST"
-                                    action="handle_reservation_action.php"
-                                    class="action-form"
-                                >
-                                    <input
-                                        type="hidden"
-                                        name="reservation_id"
-                                        value="<?= h($id) ?>"
+                                <?php if ($actions !== []): ?>
+                                    <form
+                                        method="POST"
+                                        action="handle_reservation_action.php"
+                                        class="action-form"
                                     >
+                                        <input
+                                            type="hidden"
+                                            name="reservation_id"
+                                            value="<?= h($id) ?>"
+                                        >
 
-                                    <select
-                                        name="action"
-                                        class="form-select form-select-sm"
-                                        required
-                                    >
-                                        <option value="">
-                                            Select action
-                                        </option>
-                                        <option value="accept_pending">
-                                            Accept
-                                        </option>
-                                        <option value="reject_pending">
-                                            Reject
-                                        </option>
-                                        <option value="mark_arrived">
-                                            Arrived
-                                        </option>
-                                        <option value="start_processing">
-                                            Start
-                                        </option>
-                                        <option value="mark_ready_pickup">
-                                            Ready for Pick-Up
-                                        </option>
-                                        <option value="mark_picked_up">
-                                            Picked Up
-                                        </option>
-                                        <option value="complete">
-                                            Complete
-                                        </option>
-                                        <option value="cancel">
-                                            Cancel
-                                        </option>
-                                    </select>
+                                        <select
+                                            name="action"
+                                            class="form-select form-select-sm"
+                                            required
+                                        >
+                                            <option value="">
+                                                Select next action
+                                            </option>
 
-                                    <button
-                                        type="submit"
-                                        class="btn btn-primary btn-sm"
-                                    >
-                                        Update
-                                    </button>
-                                </form>
+                                            <?php foreach (
+                                                $actions as
+                                                $actionValue => $actionLabel
+                                            ): ?>
+                                                <option
+                                                    value="<?= h(
+                                                        $actionValue
+                                                    ) ?>"
+                                                >
+                                                    <?= h($actionLabel) ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-primary btn-sm"
+                                        >
+                                            Update
+                                        </button>
+                                    </form>
+                                <?php else: ?>
+                                    <span class="text-muted small">
+                                        No further action
+                                    </span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -613,6 +798,6 @@ try {
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

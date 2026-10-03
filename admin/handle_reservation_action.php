@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 session_start();
+
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/email.php';
 
@@ -43,6 +44,33 @@ function asArray(mixed $document): ?array
     return null;
 }
 
+function updateReservationStatus(
+    $collection,
+    ObjectId $reservationId,
+    ObjectId $adminId,
+    array $currentStatuses,
+    string $newStatus
+) {
+    return $collection->updateOne(
+        [
+            '_id' => $reservationId,
+            'status' => count($currentStatuses) === 1
+                ? $currentStatuses[0]
+                : [
+                    '$in' => $currentStatuses
+                ]
+        ],
+        [
+            '$set' => [
+                'status' => $newStatus,
+                'notified' => false,
+                'updated_by' => $adminId,
+                'updated_at' => new UTCDateTime()
+            ]
+        ]
+    );
+}
+
 if (!isset($_SESSION['admin_id'])) {
     die(
         "You must be logged in as admin. " .
@@ -59,8 +87,14 @@ if (
 }
 
 $adminIdString = trim((string) $_SESSION['admin_id']);
-$reservationIdString = trim((string) $_POST['reservation_id']);
-$action = trim((string) $_POST['action']);
+
+$reservationIdString = trim((string) (
+    $_POST['reservation_id'] ?? ''
+));
+
+$action = trim((string) (
+    $_POST['action'] ?? ''
+));
 
 $idPattern = '/^[a-fA-F0-9]{24}$/';
 
@@ -74,8 +108,10 @@ if (
 
 $adminId = new ObjectId($adminIdString);
 $reservationId = new ObjectId($reservationIdString);
+
 $result = null;
 $emailStatus = null;
+$successMessage = '';
 
 try {
     $reservation = asArray(
@@ -89,93 +125,205 @@ try {
         redirectToReservations();
     }
 
+    /*
+     * Forward-only workflow:
+     *
+     * Pending
+     * → Accepted
+     * → Arrived
+     * → Washing
+     * → Drying
+     * → Folding
+     * → Ready for Pick-Up
+     * → Picked Up
+     * → Completed
+     */
     switch ($action) {
         case 'accept_pending':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Pending'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Accepted',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Pending'],
+                'Accepted'
             );
 
             $emailStatus = 'Accepted';
+
             $successMessage =
                 "Reservation #{$reservationIdString} accepted.";
             break;
 
         case 'reject_pending':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Pending'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Rejected',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Pending'],
+                'Rejected'
             );
 
             $emailStatus = 'Rejected';
+
             $successMessage =
                 "Reservation #{$reservationIdString} rejected.";
             break;
 
-        case 'update_status':
-            $newStatus = trim((string) (
-                $_POST['status'] ?? ''
-            ));
-
-            $allowedStatuses = [
-                'Washing',
-                'Drying',
-                'Folding',
-                'Ready for Pick-Up',
-                'Completed',
-                'Cancelled'
-            ];
-
-            if (!in_array($newStatus, $allowedStatuses, true)) {
-                setError('Invalid reservation status.');
-                redirectToReservations();
-            }
-
-            $result = $db->reservations->updateOne(
+        case 'mark_arrived':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
                 [
-                    '_id' => $reservationId,
-                    'status' => [
-                        '$nin' => [
-                            'Completed',
-                            'Cancelled',
-                            'Rejected'
-                        ]
-                    ]
+                    'Accepted',
+                    'Rescheduled'
                 ],
-                [
-                    '$set' => [
-                        'status' => $newStatus,
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
+                'Arrived'
             );
 
-            $emailStatus = $newStatus;
+            $emailStatus = 'Arrived';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as Arrived.";
+            break;
+
+        case 'mark_no_show':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                [
+                    'Accepted',
+                    'Rescheduled'
+                ],
+                'No-Show'
+            );
+
+            $emailStatus = 'No-Show';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} marked as No-Show.";
+            break;
+
+        case 'start_washing':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Arrived'],
+                'Washing'
+            );
+
+            $emailStatus = 'Washing';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} is now Washing.";
+            break;
+
+        case 'start_drying':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Washing'],
+                'Drying'
+            );
+
+            $emailStatus = 'Drying';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} is now Drying.";
+            break;
+
+        case 'start_folding':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Drying'],
+                'Folding'
+            );
+
+            $emailStatus = 'Folding';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} is now Folding.";
+            break;
+
+        case 'mark_ready_pickup':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Folding'],
+                'Ready for Pick-Up'
+            );
+
+            $emailStatus = 'Ready for Pick-Up';
+
             $successMessage =
                 "Reservation #{$reservationIdString} " .
-                "updated to {$newStatus}.";
+                "marked as Ready for Pick-Up.";
+            break;
+
+        case 'mark_picked_up':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Ready for Pick-Up'],
+                'Picked Up'
+            );
+
+            $emailStatus = 'Picked Up';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} " .
+                "marked as Picked Up.";
+            break;
+
+        case 'complete':
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Picked Up'],
+                'Completed'
+            );
+
+            $emailStatus = 'Completed';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} " .
+                "marked as Completed.";
+            break;
+
+        case 'cancel':
+            /*
+             * Cancellation is allowed only before the item is ready
+             * for pick-up. It cannot cancel a Picked Up or Completed
+             * reservation.
+             */
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                [
+                    'Pending',
+                    'Accepted',
+                    'Rescheduled',
+                    'Arrived',
+                    'Washing',
+                    'Drying',
+                    'Folding'
+                ],
+                'Cancelled'
+            );
+
+            $emailStatus = 'Cancelled';
+
+            $successMessage =
+                "Reservation #{$reservationIdString} cancelled.";
             break;
 
         case 'approve_service_change':
@@ -213,6 +361,7 @@ try {
             );
 
             $emailStatus = 'Service change approved';
+
             $successMessage =
                 "Service change approved for reservation #" .
                 $reservationIdString . '.';
@@ -240,185 +389,21 @@ try {
             );
 
             $emailStatus = 'Service change declined';
+
             $successMessage =
                 "Service change declined for reservation #" .
                 $reservationIdString . '.';
             break;
 
-        case 'mark_arrived':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => [
-                        '$in' => [
-                            'Accepted',
-                            'Rescheduled'
-                        ]
-                    ]
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Arrived',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'Arrived';
-            $successMessage =
-                "Reservation #{$reservationIdString} marked as Arrived.";
-            break;
-
-        case 'mark_no_show':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => [
-                        '$in' => [
-                            'Accepted',
-                            'Rescheduled'
-                        ]
-                    ]
-                ],
-                [
-                    '$set' => [
-                        'status' => 'No-Show',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'No-Show';
-            $successMessage =
-                "Reservation #{$reservationIdString} marked as No-Show.";
-            break;
-
-        case 'start_processing':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Arrived'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'In Progress',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'In Progress';
-            $successMessage =
-                "Reservation #{$reservationIdString} is now In Progress.";
-            break;
-
-        case 'mark_ready_pickup':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => [
-                        '$in' => [
-                            'In Progress',
-                            'Washing',
-                            'Drying',
-                            'Folding'
-                        ]
-                    ]
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Ready for Pick-Up',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'Ready for Pick-Up';
-            $successMessage =
-                "Reservation #{$reservationIdString} marked as Ready for Pick-Up.";
-            break;
-
-        case 'mark_picked_up':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Ready for Pick-Up'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Picked Up',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'Picked Up';
-            $successMessage =
-                "Reservation #{$reservationIdString} marked as Picked Up.";
-            break;
-
-        case 'complete':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Picked Up'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Completed',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'Completed';
-            $successMessage =
-                "Reservation #{$reservationIdString} marked as Completed.";
-            break;
-
-        case 'cancel':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => [
-                        '$nin' => [
-                            'Completed',
-                            'Picked Up',
-                            'Cancelled',
-                            'Rejected'
-                        ]
-                    ]
-                ],
-                [
-                    '$set' => [
-                        'status' => 'Cancelled',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
-            );
-
-            $emailStatus = 'Cancelled';
-            $successMessage =
-                "Reservation #{$reservationIdString} cancelled.";
-            break;
-
+        /*
+         * Reschedule actions are retained here in case you later
+         * restore them to the admin interface. They will not appear
+         * in the updated reservation dropdown.
+         */
         case 'accept_reschedule':
             $requestedDate =
                 $reservation['requested_date'] ?? null;
+
             $requestedTime =
                 $reservation['requested_time'] ?? null;
 
@@ -445,32 +430,48 @@ try {
             );
 
             $emailStatus = 'Rescheduled';
+
             $successMessage =
                 "Reschedule accepted for reservation #" .
                 $reservationIdString . '.';
             break;
 
         case 'reject_reschedule':
-            $result = $db->reservations->updateOne(
-                [
-                    '_id' => $reservationId,
-                    'status' => 'Reschedule Requested'
-                ],
-                [
-                    '$set' => [
-                        'status' => 'No-Show',
-                        'notified' => false,
-                        'updated_by' => $adminId,
-                        'updated_at' => new UTCDateTime()
-                    ]
-                ]
+            $result = updateReservationStatus(
+                $db->reservations,
+                $reservationId,
+                $adminId,
+                ['Reschedule Requested'],
+                'No-Show'
             );
 
             $emailStatus = 'No-Show';
+
             $successMessage =
                 "Reschedule rejected for reservation #" .
                 $reservationIdString . '.';
             break;
+
+        /*
+         * This action was intentionally removed.
+         *
+         * The old generic update_status handler allowed an admin
+         * to jump backwards or skip the workflow, for example:
+         * Washing → Arrived or Pending → Completed.
+         */
+        case 'update_status':
+            setError(
+                'Direct status updates are disabled. ' .
+                'Use the next available workflow action.'
+            );
+            redirectToReservations();
+
+        case 'start_processing':
+            setError(
+                'Use Start Washing instead of Start. ' .
+                'The laundry process is now forward-only.'
+            );
+            redirectToReservations();
 
         default:
             setError('Unknown reservation action.');
@@ -480,8 +481,9 @@ try {
     if (!$result || $result->getMatchedCount() === 0) {
         setError(
             'The reservation could not be updated. ' .
-            'Its current status may not allow this action.'
+            'Its current status does not allow that action.'
         );
+
         redirectToReservations();
     }
 
@@ -517,7 +519,10 @@ try {
             'LaundryQ Customer'
         ));
 
-        if ($customerEmail !== '') {
+        if (
+            $customerEmail !== '' &&
+            function_exists('sendReservationStatusEmail')
+        ) {
             $emailSent = sendReservationStatusEmail(
                 $customerEmail,
                 $customerName,
@@ -534,7 +539,8 @@ try {
         [
             '$set' => [
                 'notified' => $emailSent,
-                'notification_updated_at' => new UTCDateTime()
+                'notification_updated_at' =>
+                    new UTCDateTime()
             ]
         ]
     );
