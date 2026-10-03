@@ -213,15 +213,19 @@ try {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
+
     <title>Rate Your Service - LaundryQ</title>
+
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
     >
+
     <style>
         .star-rating {
             display: flex;
