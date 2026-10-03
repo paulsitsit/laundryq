@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 session_start();
+
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
@@ -43,6 +44,23 @@ function h(mixed $value): string
         ENT_QUOTES,
         'UTF-8'
     );
+}
+
+function asArray(mixed $document): ?array
+{
+    if ($document === null) {
+        return null;
+    }
+
+    if (is_array($document)) {
+        return $document;
+    }
+
+    if (method_exists($document, 'getArrayCopy')) {
+        return $document->getArrayCopy();
+    }
+
+    return null;
 }
 
 function formatMongoDate(mixed $value): string
@@ -127,48 +145,122 @@ function findServiceName(
         return '—';
     }
 
-    $service = $servicesCollection->findOne([
-        '_id' => $serviceId
-    ]);
+    $service = asArray(
+        $servicesCollection->findOne([
+            '_id' => $serviceId
+        ])
+    );
 
     if ($service === null) {
         return '—';
     }
 
-    return (string) ($service['service_name'] ?? '—');
+    return (string) (
+        $service['service_name'] ?? '—'
+    );
+}
+
+function reviewExists(
+    $reviewsCollection,
+    string $referenceField,
+    ObjectId $referenceId,
+    ObjectId $userId
+): bool {
+    try {
+        return $reviewsCollection->findOne([
+            $referenceField => $referenceId,
+            'user_id' => $userId
+        ]) !== null;
+    } catch (Throwable $e) {
+        error_log(
+            'Review lookup error: ' .
+            $e->getMessage()
+        );
+
+        return false;
+    }
 }
 
 try {
     $orderCursor = $db->orders->find(
-        ['user_id' => $userId],
-        ['sort' => ['created_at' => -1]]
+        [
+            'user_id' => $userId
+        ],
+        [
+            'sort' => [
+                'created_at' => -1
+            ]
+        ]
     );
 
-    foreach ($orderCursor as $order) {
+    foreach ($orderCursor as $document) {
+        $order = asArray($document);
+
+        if ($order === null) {
+            continue;
+        }
+
         $order['display_service_name'] = findServiceName(
             $order['service_id'] ?? null,
             $db->services
         );
 
+        $orderId = $order['_id'] ?? null;
+
+        $order['has_review'] =
+            $orderId instanceof ObjectId
+                ? reviewExists(
+                    $db->reviews,
+                    'order_id',
+                    $orderId,
+                    $userId
+                )
+                : false;
+
         $orders[] = $order;
     }
 
     $reservationCursor = $db->reservations->find(
-        ['user_id' => $userId],
-        ['sort' => ['created_at' => -1]]
+        [
+            'user_id' => $userId
+        ],
+        [
+            'sort' => [
+                'created_at' => -1
+            ]
+        ]
     );
 
-    foreach ($reservationCursor as $reservation) {
+    foreach ($reservationCursor as $document) {
+        $reservation = asArray($document);
+
+        if ($reservation === null) {
+            continue;
+        }
+
         $reservation['display_service_name'] = findServiceName(
             $reservation['service_id'] ?? null,
             $db->services
         );
 
+        $reservationId = $reservation['_id'] ?? null;
+
+        $reservation['has_review'] =
+            $reservationId instanceof ObjectId
+                ? reviewExists(
+                    $db->reviews,
+                    'reservation_id',
+                    $reservationId,
+                    $userId
+                )
+                : false;
+
         $reservations[] = $reservation;
     }
 } catch (Throwable $e) {
     error_log(
-        'Track order error: ' . $e->getMessage()
+        'Track order error: ' .
+        $e->getMessage()
     );
 
     $errorMessage = '
@@ -183,11 +275,14 @@ try {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
+
     <title>My Orders - LaundryQ</title>
+
     <link
         href="../assets/css/bootstrap.min.css"
         rel="stylesheet"
@@ -248,7 +343,7 @@ try {
                         <tr>
                             <th>Order ID</th>
                             <th>Service</th>
-                            <th>Weight</th>
+                            <th>Estimated Weight</th>
                             <th>Total</th>
                             <th>Status</th>
                             <th>Date Ordered</th>
@@ -278,7 +373,9 @@ try {
                                 );
 
                                 $orderService =
-                                    $order['display_service_name'] ?? '—';
+                                    $order[
+                                        'display_service_name'
+                                    ] ?? '—';
 
                                 $orderWeight =
                                     $order['weight_kg'] ?? null;
@@ -289,35 +386,51 @@ try {
 
                                 $orderDate =
                                     $order['created_at'] ?? null;
+
+                                $orderHasReview = (bool) (
+                                    $order['has_review'] ?? false
+                                );
                                 ?>
 
                                 <tr>
-                                    <td>#<?= h($orderId) ?></td>
-                                    <td><?= h($orderService) ?></td>
+                                    <td>
+                                        #<?= h($orderId) ?>
+                                    </td>
+
+                                    <td>
+                                        <?= h($orderService) ?>
+                                    </td>
+
                                     <td>
                                         <?= $orderWeight === null
                                             ? '—'
                                             : h($orderWeight) . ' kg' ?>
                                     </td>
+
                                     <td>
                                         ₱<?= number_format(
                                             $orderTotal,
                                             2
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <?= statusBadge($orderStatus) ?>
                                     </td>
+
                                     <td>
                                         <?= formatMongoDate($orderDate) ?>
                                     </td>
+
                                     <td>
                                         <?php if (
                                             $orderStatus === 'Pending'
                                         ): ?>
                                             <div class="d-flex gap-2">
                                                 <a
-                                                    href="change_order_service.php?order_id=<?= urlencode($orderId) ?>"
+                                                    href="change_order_service.php?order_id=<?= urlencode(
+                                                        $orderId
+                                                    ) ?>"
                                                     class="btn btn-outline-primary btn-sm"
                                                 >
                                                     Change Service
@@ -326,13 +439,16 @@ try {
                                                 <form
                                                     method="POST"
                                                     action="cancel_order.php"
-                                                    onsubmit="return confirm('Request cancellation for this order?');"
+                                                    onsubmit="return confirm(
+                                                        'Request cancellation for this order?'
+                                                    );"
                                                 >
                                                     <input
                                                         type="hidden"
                                                         name="order_id"
                                                         value="<?= h($orderId) ?>"
                                                     >
+
                                                     <button
                                                         type="submit"
                                                         class="btn btn-outline-danger btn-sm"
@@ -353,8 +469,24 @@ try {
                                             'Service Change Requested'
                                         ): ?>
                                             <span class="text-muted small">
-                                                Change request waiting for admin approval
+                                                Change request waiting for
+                                                admin approval
                                             </span>
+                                        <?php elseif (
+                                            $orderStatus === 'Completed'
+                                        ): ?>
+                                            <a
+                                                href="review_order.php?id=<?= urlencode(
+                                                    $orderId
+                                                ) ?>"
+                                                class="btn <?= $orderHasReview
+                                                    ? 'btn-outline-warning'
+                                                    : 'btn-warning' ?> btn-sm"
+                                            >
+                                                <?= $orderHasReview
+                                                    ? 'View Review'
+                                                    : '★ Rate Service' ?>
+                                            </a>
                                         <?php else: ?>
                                             <span class="text-muted">—</span>
                                         <?php endif; ?>
@@ -382,7 +514,7 @@ try {
                         <tr>
                             <th>Type</th>
                             <th>Service</th>
-                            <th>Weight</th>
+                            <th>Estimated Weight</th>
                             <th>Date</th>
                             <th>Time</th>
                             <th>Notes</th>
@@ -428,6 +560,10 @@ try {
                                     $reservation[
                                         'display_service_name'
                                     ] ?? '—';
+
+                                $reservationHasReview = (bool) (
+                                    $reservation['has_review'] ?? false
+                                );
                                 ?>
 
                                 <tr class="<?= h($rowClass) ?>">
@@ -438,9 +574,11 @@ try {
                                             ] ?? null
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <?= h($reservationService) ?>
                                     </td>
+
                                     <td>
                                         <?php
                                         $weight = $reservation[
@@ -452,6 +590,7 @@ try {
                                             : h($weight) . ' kg';
                                         ?>
                                     </td>
+
                                     <td>
                                         <?= h(
                                             $reservation[
@@ -459,6 +598,7 @@ try {
                                             ] ?? null
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <?= h(
                                             $reservation[
@@ -466,19 +606,24 @@ try {
                                             ] ?? null
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <?= h(
                                             $reservation['notes'] ?? null
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <?= reservationBadge(
                                             $reservationStatus
                                         ) ?>
                                     </td>
+
                                     <td>
                                         <a
-                                            href="view_reservation.php?id=<?= urlencode($reservationId) ?>"
+                                            href="view_reservation.php?id=<?= urlencode(
+                                                $reservationId
+                                            ) ?>"
                                             class="btn btn-outline-primary btn-sm mb-1"
                                         >
                                             View Details
@@ -495,7 +640,9 @@ try {
                                             )
                                         ): ?>
                                             <a
-                                                href="change_reservation_service.php?reservation_id=<?= urlencode($reservationId) ?>"
+                                                href="change_reservation_service.php?reservation_id=<?= urlencode(
+                                                    $reservationId
+                                                ) ?>"
                                                 class="btn btn-outline-primary btn-sm mb-1"
                                             >
                                                 Change Service
@@ -507,6 +654,22 @@ try {
                                             <span class="text-muted small">
                                                 Waiting for approval
                                             </span>
+                                        <?php elseif (
+                                            $reservationStatus ===
+                                            'Completed'
+                                        ): ?>
+                                            <a
+                                                href="review_reservation.php?id=<?= urlencode(
+                                                    $reservationId
+                                                ) ?>"
+                                                class="btn <?= $reservationHasReview
+                                                    ? 'btn-outline-warning'
+                                                    : 'btn-warning' ?> btn-sm mb-1"
+                                            >
+                                                <?= $reservationHasReview
+                                                    ? 'View Review'
+                                                    : '★ Rate Service' ?>
+                                            </a>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
