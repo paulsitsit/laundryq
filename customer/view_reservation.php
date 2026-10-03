@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 session_start();
+
 require_once __DIR__ . '/../config/db_connect.php';
 
 use MongoDB\BSON\ObjectId;
@@ -366,6 +367,24 @@ if ($status === 'Pending') {
 )) {
     $statusClass = 'danger';
 }
+
+$hasReview = false;
+
+if ($status === 'Completed') {
+    try {
+        $review = $db->reviews->findOne([
+            'reservation_id' => $reservationId,
+            'user_id' => $userId
+        ]);
+
+        $hasReview = $review !== null;
+    } catch (Throwable $e) {
+        error_log(
+            'Review lookup error: ' .
+            $e->getMessage()
+        );
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -497,6 +516,47 @@ if ($status === 'Pending') {
             </div>
         </div>
 
+        <?php if ($status === 'Completed'): ?>
+            <div class="card shadow-sm mb-4 border-warning">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0">
+                        ⭐ How was your laundry service?
+                    </h5>
+                </div>
+
+                <div class="card-body">
+                    <?php if ($hasReview): ?>
+                        <p class="mb-3">
+                            Thank you for rating this completed service.
+                        </p>
+
+                        <a
+                            href="review_reservation.php?id=<?= urlencode(
+                                $reservationIdString
+                            ) ?>"
+                            class="btn btn-outline-warning"
+                        >
+                            View Your Review
+                        </a>
+                    <?php else: ?>
+                        <p class="mb-3">
+                            Your reservation has been completed. Please rate
+                            the service and leave an optional review.
+                        </p>
+
+                        <a
+                            href="review_reservation.php?id=<?= urlencode(
+                                $reservationIdString
+                            ) ?>"
+                            class="btn btn-warning"
+                        >
+                            ★ Rate This Service
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white">
                 <h5 class="mb-0">Schedule</h5>
@@ -571,6 +631,7 @@ if ($status === 'Pending') {
                             <label class="fw-bold text-muted small">
                                 Service Type
                             </label>
+
                             <p class="mb-0">
                                 <?= h(
                                     $reservation[
@@ -586,6 +647,7 @@ if ($status === 'Pending') {
                             <label class="fw-bold text-muted small">
                                 Service
                             </label>
+
                             <p class="mb-0">
                                 <?= h(
                                     $reservation[
@@ -603,6 +665,7 @@ if ($status === 'Pending') {
                             <label class="fw-bold text-muted small">
                                 Estimated Weight
                             </label>
+
                             <p class="mb-0">
                                 <?php
                                 $weight = $reservation[
@@ -622,6 +685,7 @@ if ($status === 'Pending') {
                             <label class="fw-bold text-muted small">
                                 Notes
                             </label>
+
                             <p class="mb-0">
                                 <?= nl2br(
                                     h(
@@ -727,7 +791,8 @@ if ($status === 'Pending') {
                         </div>
 
                         <p class="text-muted small">
-                            Your admin will review and approve the new schedule.
+                            Your admin will review and approve the new
+                            schedule.
                         </p>
 
                         <button

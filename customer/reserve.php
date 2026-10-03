@@ -140,13 +140,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ";
             } else {
                 $service = $db->services->findOne([
-                    '_id' => new ObjectId($serviceId)
+                    '_id' => new ObjectId($serviceId),
+                    'is_active' => [
+                        '$ne' => false
+                    ]
                 ]);
 
                 if (!$service) {
                     $message = "
                         <div class='alert alert-danger'>
-                            The selected service was not found.
+                            The selected service was not found or is inactive.
                         </div>
                     ";
                 } else {
@@ -216,13 +219,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $services = $db->services->find(
-    [],
+    [
+        'is_active' => [
+            '$ne' => false
+        ]
+    ],
     [
         'sort' => [
             'service_name' => 1
         ]
     ]
-)->toArray();
+);
 
 $holidays = $db->holidays->find(
     [
@@ -315,6 +322,13 @@ if ($holidayNamesJson === false) {
         <div class="row justify-content-center">
             <div class="col-md-6">
                 <div class="d-flex align-items-center gap-2 mb-3">
+                    <a
+                        href="../index.php"
+                        class="btn btn-outline-primary btn-sm"
+                    >
+                        Home
+                    </a>
+
                     <button
                         type="button"
                         class="btn btn-outline-secondary btn-sm"
@@ -322,13 +336,6 @@ if ($holidayNamesJson === false) {
                     >
                         ← Back
                     </button>
-
-                    <a
-                        href="../index.php"
-                        class="btn btn-outline-primary btn-sm"
-                    >
-                        Home
-                    </a>
                 </div>
 
                 <div
@@ -402,8 +409,12 @@ if ($holidayNamesJson === false) {
                                     class="form-select"
                                     required
                                 >
-                                    <?php foreach ($services as $row): ?>
-                                        <?php
+                                    <?php
+                                    $serviceCount = 0;
+
+                                    foreach ($services as $row):
+                                        $serviceCount++;
+
                                         $serviceObjectId = (string) (
                                             $row['_id'] ?? ''
                                         );
@@ -428,8 +439,7 @@ if ($holidayNamesJson === false) {
                                         $maxKg = (float) (
                                             $row['max_kg'] ?? 0
                                         );
-                                        ?>
-
+                                    ?>
                                         <option
                                             value="<?= htmlspecialchars(
                                                 $serviceObjectId,
@@ -458,13 +468,13 @@ if ($holidayNamesJson === false) {
                                         </option>
                                     <?php endforeach; ?>
 
-                                    <?php if (count($services) === 0): ?>
+                                    <?php if ($serviceCount === 0): ?>
                                         <option
                                             value=""
                                             disabled
                                             selected
                                         >
-                                            No services available
+                                            No active services available
                                         </option>
                                     <?php endif; ?>
                                 </select>
@@ -606,7 +616,7 @@ if ($holidayNamesJson === false) {
                                 type="submit"
                                 class="btn btn-primary w-100"
                                 id="submitBtn"
-                                <?= count($services) === 0
+                                <?= $serviceCount === 0
                                     ? 'disabled'
                                     : '' ?>
                             >
