@@ -772,6 +772,7 @@ for ($index = 0; $index < 7; $index++) {
                         <th>Total</th>
                         <th>Status</th>
                         <th>Date</th>
+                        <th>Customer Note</th>
                         <th>Action</th>
                     </tr>
                     </thead>
@@ -780,7 +781,7 @@ for ($index = 0; $index < 7; $index++) {
                     <?php if (!$orders): ?>
                         <tr>
                             <td
-                                colspan="8"
+                                colspan="9"
                                 class="text-center text-muted py-4"
                             >
                                 No orders found.
@@ -841,6 +842,28 @@ for ($index = 0; $index < 7; $index++) {
                                 <?= formatDateValue(
                                     $order['created_at'] ?? null
                                 ) ?>
+                            </td>
+                            <td>
+                                <?php
+                                $orderNote = trim((string) (
+                                    $order['notes'] ??
+                                    $order['customer_note'] ??
+                                    ''
+                                ));
+                                ?>
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-primary btn-sm js-note-modal"
+                                    data-note="<?= htmlspecialchars(
+                                        $orderNote,
+                                        ENT_QUOTES,
+                                        'UTF-8'
+                                    ) ?>"
+                                    data-record-label="Order #<?= h($orderId) ?>"
+                                >
+                                    <i class="bi bi-chat-left-text"></i>
+                                    View Note
+                                </button>
                             </td>
                             <td>
                                 <?php if (
@@ -1017,6 +1040,50 @@ for ($index = 0; $index < 7; $index++) {
     </div>
 </div>
 
+<!-- Customer note modal: reused for every order row -->
+<div
+    class="modal fade"
+    id="customerNoteModal"
+    tabindex="-1"
+    aria-labelledby="customerNoteModalLabel"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="customerNoteModalLabel">
+                        Customer Note
+                    </h5>
+                    <small class="text-muted" id="customerNoteRecord"></small>
+                </div>
+                <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                ></button>
+            </div>
+            <div class="modal-body">
+                <div
+                    id="customerNoteContent"
+                    class="rounded bg-light p-3"
+                    style="white-space: pre-wrap; overflow-wrap: anywhere;"
+                ></div>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    data-bs-dismiss="modal"
+                >
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 new Chart(
@@ -1055,5 +1122,22 @@ new Chart(
 </script>
 
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+document.querySelectorAll('.js-note-modal').forEach((button) => {
+    button.addEventListener('click', () => {
+        const note = button.dataset.note || '';
+        const recordLabel = button.dataset.recordLabel || '';
+
+        // Use textContent so customer-provided notes are never interpreted as HTML.
+        document.getElementById('customerNoteRecord').textContent = recordLabel;
+        document.getElementById('customerNoteContent').textContent =
+            note.trim() !== '' ? note : 'No note was provided by the customer.';
+
+        bootstrap.Modal
+            .getOrCreateInstance(document.getElementById('customerNoteModal'))
+            .show();
+    });
+});
+</script>
 </body>
 </html>
